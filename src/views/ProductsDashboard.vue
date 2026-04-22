@@ -2,15 +2,27 @@
 import { ref, computed, onMounted } from 'vue'
 import { Doughnut } from 'vue-chartjs'
 import { Chart as ChartJS, ArcElement, Tooltip, Legend } from 'chart.js'
-import { fetchAllSalesRecords, type SaleRecord } from '../services/proxy'
+import { fetchAllSalesRecords, type SaleRecord, type Period } from '../services/proxy'
 
 ChartJS.register(ArcElement, Tooltip, Legend)
 
 const today = new Date().toISOString().slice(0, 10)
+const thisMonth = today.slice(0, 7)
 const firstOfMonth = today.slice(0, 8) + '01'
 
-const startDate = ref(firstOfMonth)
-const endDate = ref(today)
+const period = ref<Period>('between_dates')
+const dateStart = ref(firstOfMonth)
+const dateEnd = ref(today)
+const monthStart = ref(thisMonth)
+const monthEnd = ref(thisMonth)
+
+const periodLabels: Record<Period, string> = {
+  between_dates: 'Rango de fechas',
+  between_months: 'Rango de meses',
+  month: 'Mes',
+  date: 'Fecha',
+}
+
 const records = ref<SaleRecord[]>([])
 const loading = ref(false)
 const error = ref<string | null>(null)
@@ -133,12 +145,21 @@ const customersByProduct = computed<CustomerProductRow[]>(() => {
 const maxCxpQuantity = computed(() => customersByProduct.value[0]?.quantity ?? 1)
 const maxCxpTotal = computed(() => customersByProduct.value[0]?.total ?? 1)
 
+function buildFilter() {
+  return {
+    period: period.value,
+    dateStart: dateStart.value,
+    dateEnd: dateEnd.value,
+    monthStart: monthStart.value,
+    monthEnd: monthEnd.value,
+  }
+}
+
 async function load() {
-  if (!startDate.value || !endDate.value) return
   loading.value = true
   error.value = null
   try {
-    records.value = await fetchAllSalesRecords(startDate.value, endDate.value)
+    records.value = await fetchAllSalesRecords(buildFilter())
   } catch (e) {
     error.value = e instanceof Error ? e.message : 'Error al cargar los datos'
   } finally {
@@ -154,13 +175,30 @@ onMounted(load)
     <div class="filters card">
       <div class="filter-row">
         <label>
-          Desde
-          <input type="date" v-model="startDate" />
+          Periodo
+          <select v-model="period" class="period-select">
+            <option v-for="(label, key) in periodLabels" :key="key" :value="key">{{ label }}</option>
+          </select>
         </label>
-        <label>
-          Hasta
-          <input type="date" v-model="endDate" />
-        </label>
+
+        <template v-if="period === 'date'">
+          <label>Fecha <input type="date" v-model="dateStart" /></label>
+        </template>
+
+        <template v-else-if="period === 'month'">
+          <label>Mes <input type="month" v-model="monthStart" /></label>
+        </template>
+
+        <template v-else-if="period === 'between_dates'">
+          <label>Desde <input type="date" v-model="dateStart" /></label>
+          <label>Hasta <input type="date" v-model="dateEnd" /></label>
+        </template>
+
+        <template v-else-if="period === 'between_months'">
+          <label>Desde <input type="month" v-model="monthStart" /></label>
+          <label>Hasta <input type="month" v-model="monthEnd" /></label>
+        </template>
+
         <button class="btn-primary" @click="load" :disabled="loading">
           {{ loading ? 'Cargando…' : 'Buscar' }}
         </button>
@@ -352,6 +390,18 @@ input[type='date']:focus { border-color: #3b82f6; background: #fff; }
 }
 .btn-primary:hover:not(:disabled) { background: #1d4ed8; }
 .btn-primary:disabled { opacity: 0.6; cursor: not-allowed; }
+
+.period-select {
+  padding: 0.45rem 0.75rem;
+  border: 1px solid #cbd5e1;
+  border-radius: 6px;
+  font-size: 0.9rem;
+  color: #1e293b;
+  background: #f8fafc;
+  outline: none;
+  cursor: pointer;
+}
+.period-select:focus { border-color: #3b82f6; background: #fff; }
 
 .error {
   margin: 1rem 1.5rem 0;

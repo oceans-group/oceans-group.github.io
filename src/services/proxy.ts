@@ -39,13 +39,23 @@ interface SalesResponse {
   }
 }
 
-function buildParams(startDate: string, endDate: string, page: number) {
+export type Period = 'between_dates' | 'between_months' | 'month' | 'date'
+
+export interface SalesFilter {
+  period: Period
+  dateStart: string
+  dateEnd: string
+  monthStart: string
+  monthEnd: string
+}
+
+function buildParams(filter: SalesFilter, page: number) {
   return {
-    period: 'month',
-    date_start: startDate,
-    date_end: endDate,
-    month_start: startDate.slice(0, 7),
-    month_end: endDate.slice(0, 7),
+    period: filter.period,
+    date_start: filter.dateStart,
+    date_end: filter.dateEnd,
+    month_start: filter.monthStart,
+    month_end: filter.monthEnd,
     products: true,
     include_categories: false,
     apply_conversion_to_pen: false,
@@ -53,21 +63,21 @@ function buildParams(startDate: string, endDate: string, page: number) {
   }
 }
 
-async function fetchPage(startDate: string, endDate: string, page: number): Promise<SalesResponse> {
+async function fetchPage(filter: SalesFilter, page: number): Promise<SalesResponse> {
   const res = await proxy.get<SalesResponse>('/proxy/reports/sales/records', {
-    params: buildParams(startDate, endDate, page),
+    params: buildParams(filter, page),
   })
   return res.data
 }
 
-export async function fetchAllSalesRecords(startDate: string, endDate: string): Promise<SaleRecord[]> {
-  const first = await fetchPage(startDate, endDate, 1)
+export async function fetchAllSalesRecords(filter: SalesFilter): Promise<SaleRecord[]> {
+  const first = await fetchPage(filter, 1)
   const { last_page } = first.meta
 
   if (last_page === 1) return first.data
 
   const rest = await Promise.all(
-    Array.from({ length: last_page - 1 }, (_, i) => fetchPage(startDate, endDate, i + 2)),
+    Array.from({ length: last_page - 1 }, (_, i) => fetchPage(filter, i + 2)),
   )
 
   return [...first.data, ...rest.flatMap((r) => r.data)]
