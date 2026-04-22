@@ -141,12 +141,12 @@ onMounted(load)
 
 <template>
   <div class="dashboard">
-    <header class="header">
+    <!-- <header class="header">
       <div class="header-title">
         <span class="header-logo">🌊</span>
         <h1>Oceans — Documentos</h1>
       </div>
-    </header>
+    </header> -->
 
     <div class="filters card">
       <div class="filter-row">
