@@ -30,6 +30,7 @@ const records = ref<SaleRecord[]>([])
 const loading = ref(false)
 const error = ref<string | null>(null)
 
+
 type SortKey = 'quantity' | 'total'
 const sortKey = ref<SortKey>('total')
 
@@ -256,6 +257,7 @@ function buildFilter() {
     dateEnd: dateEnd.value,
     monthStart: monthStart.value,
     monthEnd: monthEnd.value,
+    personTypeIds: [],
   }
 }
 
@@ -559,6 +561,46 @@ input[type='date']:focus { border-color: #3b82f6; background: #fff; }
   cursor: pointer;
 }
 .period-select:focus { border-color: #3b82f6; background: #fff; }
+
+.type-filter-row {
+  align-items: center;
+  gap: 0.75rem;
+}
+
+.type-filter-label {
+  font-size: 0.8rem;
+  font-weight: 600;
+  color: #475569;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  white-space: nowrap;
+}
+
+.type-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem;
+}
+
+.type-chip {
+  padding: 0.3rem 0.75rem;
+  border: 1px solid #cbd5e1;
+  border-radius: 999px;
+  background: #f8fafc;
+  color: #475569;
+  font-size: 0.8rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.15s;
+}
+
+.type-chip:hover { border-color: #7c3aed; color: #7c3aed; }
+
+.type-chip.active {
+  background: #7c3aed;
+  border-color: #7c3aed;
+  color: #fff;
+}
 
 .error {
   margin: 1rem 1.5rem 0;
