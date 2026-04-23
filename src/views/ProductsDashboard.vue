@@ -1,10 +1,13 @@
 <script setup lang="ts">
 import { ref, computed, onMounted } from 'vue'
-import { Doughnut } from 'vue-chartjs'
-import { Chart as ChartJS, ArcElement, Tooltip, Legend } from 'chart.js'
+import { Doughnut, Bar } from 'vue-chartjs'
+import {
+  Chart as ChartJS, ArcElement, Tooltip, Legend,
+  BarElement, CategoryScale, LinearScale,
+} from 'chart.js'
 import { fetchAllSalesRecords, type SaleRecord, type Period } from '../services/proxy'
 
-ChartJS.register(ArcElement, Tooltip, Legend)
+ChartJS.register(ArcElement, Tooltip, Legend, BarElement, CategoryScale, LinearScale)
 
 const today = new Date().toISOString().slice(0, 10)
 const thisMonth = today.slice(0, 7)
@@ -102,6 +105,76 @@ const donutOptions = {
 
 function fmt(n: number) {
   return n.toLocaleString('es-PE', { minimumFractionDigits: 2 })
+}
+
+// ── Ventas mensuales ─────────────────────────────────────────────────────────
+
+const monthlyBarData = computed(() => {
+  const map = new Map<string, { total: number; count: number }>()
+  for (const r of records.value) {
+    const month = r.date_of_issue.slice(0, 7)
+    const entry = map.get(month) ?? { total: 0, count: 0 }
+    entry.total += Number(r.total)
+    entry.count += 1
+    map.set(month, entry)
+  }
+  const labels = [...map.keys()].sort()
+  return {
+    labels,
+    datasets: [
+      {
+        label: 'Importe (S/.)',
+        data: labels.map((l) => map.get(l)!.total),
+        backgroundColor: '#2563eb',
+        borderRadius: 6,
+        borderSkipped: false,
+        yAxisID: 'y',
+      },
+      {
+        label: 'Nº documentos',
+        data: labels.map((l) => map.get(l)!.count),
+        backgroundColor: '#7c3aed',
+        borderRadius: 6,
+        borderSkipped: false,
+        yAxisID: 'y2',
+      },
+    ],
+  }
+})
+
+const monthlyBarOptions = {
+  responsive: true,
+  maintainAspectRatio: false,
+  interaction: { mode: 'index' as const, intersect: false },
+  plugins: {
+    legend: { position: 'top' as const, labels: { font: { size: 12 }, usePointStyle: true, boxWidth: 8 } },
+    tooltip: {
+      callbacks: {
+        label: (ctx: { dataset: { label?: string }; parsed: { y: number | null } }) => {
+          const val = ctx.parsed.y ?? 0
+          if (ctx.dataset.label?.startsWith('Importe'))
+            return ` S/. ${val.toLocaleString('es-PE', { minimumFractionDigits: 2 })}`
+          return ` ${val} docs`
+        },
+      },
+    },
+  },
+  scales: {
+    x: { grid: { display: false }, ticks: { font: { size: 11 }, color: '#64748b' } },
+    y: {
+      position: 'left' as const,
+      grid: { color: '#f1f5f9' },
+      ticks: {
+        font: { size: 11 }, color: '#2563eb',
+        callback: (v: number | string) => 'S/. ' + Number(v).toLocaleString('es-PE', { minimumFractionDigits: 0 }),
+      },
+    },
+    y2: {
+      position: 'right' as const,
+      grid: { drawOnChartArea: false },
+      ticks: { font: { size: 11 }, color: '#7c3aed' },
+    },
+  },
 }
 
 // ── Clientes por producto ────────────────────────────────────────────────────
@@ -254,6 +327,13 @@ onMounted(load)
               </tr>
             </tbody>
           </table>
+        </div>
+      </div>
+
+      <div class="card">
+        <h2 class="section-title">Ventas mensuales</h2>
+        <div class="bar-chart-wrap">
+          <Bar :data="monthlyBarData" :options="monthlyBarOptions" />
         </div>
       </div>
 
@@ -536,6 +616,11 @@ td { padding: 0.55rem 0.8rem; color: #334155; }
   text-align: center;
   color: #94a3b8;
   font-size: 0.9rem;
+}
+
+.bar-chart-wrap {
+  height: 280px;
+  position: relative;
 }
 
 .donut-wrap {
