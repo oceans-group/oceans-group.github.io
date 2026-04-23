@@ -177,6 +177,77 @@ const monthlyBarOptions = {
   },
 }
 
+// ── Top clientes general ─────────────────────────────────────────────────────
+
+type TopClientSort = 'total' | 'count'
+const topClientSort = ref<TopClientSort>('total')
+
+interface TopClientRow {
+  customer_number: string
+  customer_name: string
+  count: number
+  total: number
+}
+
+const topClientsGeneral = computed<TopClientRow[]>(() => {
+  const map = new Map<string, TopClientRow>()
+  for (const r of records.value) {
+    const row = map.get(r.customer_number) ?? {
+      customer_number: r.customer_number,
+      customer_name: r.customer_name,
+      count: 0,
+      total: 0,
+    }
+    row.count += 1
+    row.total += Number(r.total)
+    map.set(r.customer_number, row)
+  }
+  return [...map.values()].sort((a, b) => b[topClientSort.value] - a[topClientSort.value])
+})
+
+const maxTopClientTotal = computed(() => topClientsGeneral.value[0]?.total ?? 1)
+const maxTopClientCount = computed(() => topClientsGeneral.value[0]?.count ?? 1)
+
+// ── Clientes sin compras recientes ───────────────────────────────────────────
+
+interface InactiveClientRow {
+  customer_number: string
+  customer_name: string
+  last_purchase: string
+  days_inactive: number
+  total_period: number
+  count_period: number
+}
+
+const today_str = new Date().toISOString().slice(0, 10)
+
+const inactiveClients = computed<InactiveClientRow[]>(() => {
+  const map = new Map<string, InactiveClientRow>()
+  for (const r of records.value) {
+    const existing = map.get(r.customer_number)
+    const isNewer = !existing || r.date_of_issue > existing.last_purchase
+    const row: InactiveClientRow = existing ?? {
+      customer_number: r.customer_number,
+      customer_name: r.customer_name,
+      last_purchase: r.date_of_issue,
+      days_inactive: 0,
+      total_period: 0,
+      count_period: 0,
+    }
+    if (isNewer) row.last_purchase = r.date_of_issue
+    row.total_period += Number(r.total)
+    row.count_period += 1
+    map.set(r.customer_number, row)
+  }
+  const msPerDay = 86_400_000
+  return [...map.values()]
+    .map((r) => ({
+      ...r,
+      days_inactive: Math.floor((Date.parse(today_str) - Date.parse(r.last_purchase)) / msPerDay),
+    }))
+    .sort((a, b) => b.days_inactive - a.days_inactive)
+})
+
 // ── Clientes por producto ────────────────────────────────────────────────────
 
 type CxpSort = 'quantity' | 'total'
@@ -404,6 +475,89 @@ onMounted(load)
           </table>
         </div>
       </div>
+
+      <!-- Top Clientes General -->
+      <div class="card">
+        <div class="section-header">
+          <h2 class="section-title">Top Clientes</h2>
+          <div class="sort-toggle">
+            <button :class="{ active: topClientSort === 'total' }" @click="topClientSort = 'total'">Por importe</button>
+            <button :class="{ active: topClientSort === 'count' }" @click="topClientSort = 'count'">Por cantidad</button>
+          </div>
+        </div>
+        <div class="table-wrap">
+          <table>
+            <thead>
+              <tr>
+                <th>#</th>
+                <th>Cliente</th>
+                <th>DNI/RUC</th>
+                <th class="right">Docs</th>
+                <th class="bar-col">Cant.</th>
+                <th class="right">Importe (S/.)</th>
+                <th class="bar-col">Import.</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr v-for="(row, i) in topClientsGeneral" :key="row.customer_number">
+                <td class="rank">{{ i + 1 }}</td>
+                <td>{{ row.customer_name }}</td>
+                <td class="mono">{{ row.customer_number }}</td>
+                <td class="right mono">{{ row.count }}</td>
+                <td class="bar-col">
+                  <div class="bar-track">
+                    <div class="bar-fill purple" :style="{ width: (row.count / maxTopClientCount * 100).toFixed(1) + '%' }" />
+                  </div>
+                </td>
+                <td class="right mono">{{ fmt(row.total) }}</td>
+                <td class="bar-col">
+                  <div class="bar-track">
+                    <div class="bar-fill blue" :style="{ width: (row.total / maxTopClientTotal * 100).toFixed(1) + '%' }" />
+                  </div>
+                </td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      <!-- Clientes sin compras recientes -->
+      <div class="card">
+        <div class="section-header">
+          <h2 class="section-title">Clientes sin compras recientes</h2>
+          <span class="section-hint">Ordenados por mayor tiempo sin comprar — prioridad de reactivación</span>
+        </div>
+        <div class="table-wrap">
+          <table>
+            <thead>
+              <tr>
+                <th>#</th>
+                <th>Cliente</th>
+                <th>DNI/RUC</th>
+                <th class="right">Última compra</th>
+                <th class="right">Días inactivo</th>
+                <th class="right">Docs en periodo</th>
+                <th class="right">Total periodo (S/.)</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr v-for="(row, i) in inactiveClients" :key="row.customer_number">
+                <td class="rank">{{ i + 1 }}</td>
+                <td>{{ row.customer_name }}</td>
+                <td class="mono">{{ row.customer_number }}</td>
+                <td class="right nowrap">{{ row.last_purchase }}</td>
+                <td class="right">
+                  <span class="days-badge" :class="row.days_inactive >= 30 ? 'danger' : row.days_inactive >= 14 ? 'warn' : 'ok'">
+                    {{ row.days_inactive }}d
+                  </span>
+                </td>
+                <td class="right mono">{{ row.count_period }}</td>
+                <td class="right mono">{{ fmt(row.total_period) }}</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
     </template>
 
     <div v-else-if="!loading" class="card empty">
@@ -617,6 +771,26 @@ td { padding: 0.55rem 0.8rem; color: #334155; }
   color: #94a3b8;
   font-size: 0.9rem;
 }
+
+.section-hint {
+  font-size: 0.78rem;
+  color: #94a3b8;
+  font-weight: 400;
+}
+
+.nowrap { white-space: nowrap; }
+
+.days-badge {
+  display: inline-block;
+  padding: 0.15rem 0.5rem;
+  border-radius: 999px;
+  font-size: 0.75rem;
+  font-weight: 700;
+  font-family: monospace;
+}
+.days-badge.ok     { background: #dcfce7; color: #16a34a; }
+.days-badge.warn   { background: #fef9c3; color: #ca8a04; }
+.days-badge.danger { background: #fee2e2; color: #dc2626; }
 
 .bar-chart-wrap {
   height: 280px;
