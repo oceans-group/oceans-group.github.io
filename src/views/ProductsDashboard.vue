@@ -30,6 +30,14 @@ const records = ref<SaleRecord[]>([])
 const loading = ref(false)
 const error = ref<string | null>(null)
 
+type SourceFilter = 'all' | 'document' | 'sale_note'
+const sourceFilter = ref<SourceFilter>('all')
+
+const activeRecords = computed(() =>
+  sourceFilter.value === 'all'
+    ? records.value
+    : records.value.filter((r) => r.source === sourceFilter.value),
+)
 
 type SortKey = 'quantity' | 'total'
 const sortKey = ref<SortKey>('total')
@@ -43,7 +51,7 @@ interface ProductRow {
 
 const topProducts = computed<ProductRow[]>(() => {
   const map = new Map<string, ProductRow>()
-  for (const record of records.value) {
+  for (const record of activeRecords.value) {
     for (const item of record.items ?? []) {
       const key = item.internal_id
       const row = map.get(key) ?? { internal_id: item.internal_id, description: item.description, quantity: 0, total: 0 }
@@ -112,7 +120,7 @@ function fmt(n: number) {
 
 const monthlyBarData = computed(() => {
   const map = new Map<string, { total: number; count: number }>()
-  for (const r of records.value) {
+  for (const r of activeRecords.value) {
     const month = r.date_of_issue.slice(0, 7)
     const entry = map.get(month) ?? { total: 0, count: 0 }
     entry.total += Number(r.total)
@@ -192,7 +200,7 @@ interface TopClientRow {
 
 const topClientsGeneral = computed<TopClientRow[]>(() => {
   const map = new Map<string, TopClientRow>()
-  for (const r of records.value) {
+  for (const r of activeRecords.value) {
     const row = map.get(r.customer_number) ?? {
       customer_number: r.customer_number,
       customer_name: r.customer_name,
@@ -229,7 +237,7 @@ interface CustomerProductRow {
 const customersByProduct = computed<CustomerProductRow[]>(() => {
   if (!selectedProduct.value) return []
   const map = new Map<string, CustomerProductRow>()
-  for (const record of records.value) {
+  for (const record of activeRecords.value) {
     for (const item of record.items ?? []) {
       if (item.internal_id !== selectedProduct.value) continue
       const key = record.customer_number
@@ -308,6 +316,18 @@ onMounted(load)
         <button class="btn-primary" @click="load" :disabled="loading">
           {{ loading ? 'Cargando…' : 'Buscar' }}
         </button>
+
+        <div class="source-toggle" v-if="!loading && records.length">
+          <button :class="{ active: sourceFilter === 'all' }" @click="sourceFilter = 'all'">
+            Todos
+          </button>
+          <button :class="{ active: sourceFilter === 'document' }" @click="sourceFilter = 'document'">
+            Facturas / Boletas
+          </button>
+          <button :class="{ active: sourceFilter === 'sale_note' }" @click="sourceFilter = 'sale_note'">
+            Notas de venta
+          </button>
+        </div>
       </div>
     </div>
 
@@ -561,6 +581,34 @@ input[type='date']:focus { border-color: #3b82f6; background: #fff; }
   cursor: pointer;
 }
 .period-select:focus { border-color: #3b82f6; background: #fff; }
+
+.source-toggle {
+  display: flex;
+  border: 1px solid #e2e8f0;
+  border-radius: 6px;
+  overflow: hidden;
+  height: 36px;
+  align-self: flex-end;
+}
+
+.source-toggle button {
+  padding: 0 0.9rem;
+  background: #fff;
+  border: none;
+  font-size: 0.8rem;
+  font-weight: 600;
+  color: #64748b;
+  cursor: pointer;
+  transition: background 0.15s, color 0.15s;
+  white-space: nowrap;
+}
+
+.source-toggle button + button { border-left: 1px solid #e2e8f0; }
+
+.source-toggle button.active {
+  background: #0f172a;
+  color: #fff;
+}
 
 .type-filter-row {
   align-items: center;
