@@ -136,6 +136,49 @@ const topCustomers = computed<CustomerRow[]>(() => {
 const maxCustomerTotal = computed(() => topCustomers.value[0]?.total ?? 1)
 const maxCustomerCount = computed(() => topCustomers.value[0]?.count ?? 1)
 
+// ── Clientes sin compras recientes ───────────────────────────────────────────
+
+interface InactiveClientRow {
+  customer_number: string
+  customer_name: string
+  customer_telephone: string | null
+  customer_email: string | null
+  last_purchase: string
+  days_inactive: number
+  total_period: number
+  count_period: number
+}
+
+const todayStr = new Date().toISOString().slice(0, 10)
+
+const inactiveClients = computed<InactiveClientRow[]>(() => {
+  const map = new Map<string, InactiveClientRow>()
+  for (const d of documents.value) {
+    const existing = map.get(d.customer_number)
+    const row: InactiveClientRow = existing ?? {
+      customer_number: d.customer_number,
+      customer_name: d.customer_name,
+      customer_telephone: d.customer_telephone,
+      customer_email: d.customer_email,
+      last_purchase: d.date_of_issue,
+      days_inactive: 0,
+      total_period: 0,
+      count_period: 0,
+    }
+    if (d.date_of_issue > row.last_purchase) row.last_purchase = d.date_of_issue
+    row.total_period += Number(d.total)
+    row.count_period += 1
+    map.set(d.customer_number, row)
+  }
+  const msPerDay = 86_400_000
+  return [...map.values()]
+    .map((r) => ({
+      ...r,
+      days_inactive: Math.floor((Date.parse(todayStr) - Date.parse(r.last_purchase)) / msPerDay),
+    }))
+    .sort((a, b) => b.days_inactive - a.days_inactive)
+})
+
 onMounted(load)
 </script>
 
@@ -242,6 +285,47 @@ onMounted(load)
                   />
                 </div>
               </td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+
+    <div v-if="!loading && inactiveClients.length" class="card">
+      <div class="inactive-header">
+        <h2>Clientes sin compras recientes</h2>
+        <span class="inactive-hint">Mayor tiempo sin comprar → mayor prioridad de reactivación</span>
+      </div>
+      <div class="tc-table-wrap">
+        <table class="tc-table">
+          <thead>
+            <tr>
+              <th>#</th>
+              <th>Cliente</th>
+              <th>DNI/RUC</th>
+              <th>Teléfono</th>
+              <th>Email</th>
+              <th class="tc-num">Última compra</th>
+              <th class="tc-num">Días inactivo</th>
+              <th class="tc-num">Docs</th>
+              <th class="tc-num">Total (S/.)</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr v-for="(row, i) in inactiveClients" :key="row.customer_number">
+              <td class="tc-rank">{{ i + 1 }}</td>
+              <td class="tc-name">{{ row.customer_name }}</td>
+              <td class="mono">{{ row.customer_number }}</td>
+              <td class="mono">{{ row.customer_telephone ?? '—' }}</td>
+              <td class="mono small">{{ row.customer_email ?? '—' }}</td>
+              <td class="tc-num mono">{{ row.last_purchase }}</td>
+              <td class="tc-num">
+                <span class="days-badge" :class="row.days_inactive >= 30 ? 'danger' : row.days_inactive >= 14 ? 'warn' : 'ok'">
+                  {{ row.days_inactive }}d
+                </span>
+              </td>
+              <td class="tc-num mono">{{ row.count_period }}</td>
+              <td class="tc-num mono">{{ fmt(row.total_period) }}</td>
             </tr>
           </tbody>
         </table>
@@ -723,4 +807,42 @@ td {
 .bar-fill.amount {
   background: #2563eb;
 }
+
+.inactive-header {
+  display: flex;
+  align-items: baseline;
+  gap: 0.75rem;
+  flex-wrap: wrap;
+  margin-bottom: 1rem;
+}
+
+.inactive-header h2 {
+  margin: 0;
+  font-size: 0.95rem;
+  font-weight: 700;
+  color: #0f172a;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+.inactive-hint {
+  font-size: 0.78rem;
+  color: #94a3b8;
+}
+
+.small {
+  font-size: 0.78rem;
+}
+
+.days-badge {
+  display: inline-block;
+  padding: 0.15rem 0.5rem;
+  border-radius: 999px;
+  font-size: 0.75rem;
+  font-weight: 700;
+  font-family: monospace;
+}
+.days-badge.ok     { background: #dcfce7; color: #16a34a; }
+.days-badge.warn   { background: #fef9c3; color: #ca8a04; }
+.days-badge.danger { background: #fee2e2; color: #dc2626; }
 </style>

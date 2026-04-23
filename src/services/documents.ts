@@ -22,6 +22,8 @@ export interface Document {
   download_pdf: string
   download_xml: string
   created_at: string
+  customer_telephone: string | null
+  customer_email: string | null
 }
 
 export interface DocumentsResponse {
