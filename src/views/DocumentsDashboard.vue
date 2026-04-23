@@ -179,6 +179,17 @@ const inactiveClients = computed<InactiveClientRow[]>(() => {
     .sort((a, b) => b.days_inactive - a.days_inactive)
 })
 
+// ── Clientes valiosos perdidos ────────────────────────────────────────────────
+
+const minDaysInactive = ref(30)
+const daysOptions = [15, 30, 60, 90]
+
+const churnedHighValue = computed(() =>
+  inactiveClients.value
+    .filter((r) => r.days_inactive >= minDaysInactive.value)
+    .sort((a, b) => b.total_period - a.total_period),
+)
+
 onMounted(load)
 </script>
 
@@ -326,6 +337,63 @@ onMounted(load)
               </td>
               <td class="tc-num mono">{{ row.count_period }}</td>
               <td class="tc-num mono">{{ fmt(row.total_period) }}</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+
+    <div v-if="!loading && churnedHighValue.length > 0 || (!loading && documents.length)" class="card churned-card">
+      <div class="churned-header">
+        <div class="churned-title-group">
+          <h2>Clientes valiosos perdidos</h2>
+          <span class="inactive-hint">Ordenados por mayor importe histórico — los más urgentes de recuperar</span>
+        </div>
+        <div class="days-filter">
+          <span class="days-label">Sin comprar hace más de:</span>
+          <div class="sort-toggle">
+            <button
+              v-for="d in daysOptions"
+              :key="d"
+              :class="{ active: minDaysInactive === d }"
+              @click="minDaysInactive = d"
+            >{{ d }}d</button>
+          </div>
+        </div>
+      </div>
+
+      <div v-if="churnedHighValue.length === 0" class="empty-churned">
+        No hay clientes con más de {{ minDaysInactive }} días sin comprar en este periodo.
+      </div>
+
+      <div v-else class="tc-table-wrap">
+        <table class="tc-table">
+          <thead>
+            <tr>
+              <th>#</th>
+              <th>Cliente</th>
+              <th>DNI/RUC</th>
+              <th>Teléfono</th>
+              <th>Email</th>
+              <th class="tc-num">Última compra</th>
+              <th class="tc-num">Días inactivo</th>
+              <th class="tc-num">Docs</th>
+              <th class="tc-num">Total histórico (S/.)</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr v-for="(row, i) in churnedHighValue" :key="row.customer_number">
+              <td class="tc-rank">{{ i + 1 }}</td>
+              <td class="tc-name">{{ row.customer_name }}</td>
+              <td class="mono">{{ row.customer_number }}</td>
+              <td class="mono">{{ row.customer_telephone ?? '—' }}</td>
+              <td class="mono small">{{ row.customer_email ?? '—' }}</td>
+              <td class="tc-num mono">{{ row.last_purchase }}</td>
+              <td class="tc-num">
+                <span class="days-badge danger">{{ row.days_inactive }}d</span>
+              </td>
+              <td class="tc-num mono">{{ row.count_period }}</td>
+              <td class="tc-num mono amount-highlight">{{ fmt(row.total_period) }}</td>
             </tr>
           </tbody>
         </table>
@@ -845,4 +913,56 @@ td {
 .days-badge.ok     { background: #dcfce7; color: #16a34a; }
 .days-badge.warn   { background: #fef9c3; color: #ca8a04; }
 .days-badge.danger { background: #fee2e2; color: #dc2626; }
+
+.churned-card { padding: 1.25rem 1.5rem; }
+
+.churned-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 0.75rem;
+  margin-bottom: 1rem;
+}
+
+.churned-title-group {
+  display: flex;
+  flex-direction: column;
+  gap: 0.2rem;
+}
+
+.churned-title-group h2 {
+  margin: 0;
+  font-size: 0.95rem;
+  font-weight: 700;
+  color: #0f172a;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+.days-filter {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  flex-wrap: wrap;
+}
+
+.days-label {
+  font-size: 0.8rem;
+  font-weight: 600;
+  color: #64748b;
+  white-space: nowrap;
+}
+
+.empty-churned {
+  padding: 2rem;
+  text-align: center;
+  color: #94a3b8;
+  font-size: 0.9rem;
+}
+
+.amount-highlight {
+  color: #dc2626;
+  font-weight: 700;
+}
 </style>
