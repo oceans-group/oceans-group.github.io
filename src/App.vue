@@ -5,7 +5,7 @@
     <header class="header">
       <div class="header-brand">
         <span class="header-logo">🌊</span>
-        <span class="header-name">Oceans</span>
+        <span class="header-name">Oceans Analytics</span>
       </div>
       <nav class="nav">
         <RouterLink to="/" class="nav-link">
