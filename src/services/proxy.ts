@@ -17,6 +17,7 @@ export interface SaleItem {
 
 export interface SaleRecord {
   id: number
+  customer_id: number
   date_of_issue: string
   customer_name: string
   customer_number: string
@@ -43,6 +44,7 @@ interface SaleNoteItemRaw {
 
 interface SaleNoteRaw {
   id: number
+  customer_id: number
   date_of_issue: string
   customer_name: string
   customer_number: string
@@ -78,6 +80,35 @@ export interface PersonType {
 export async function fetchPersonTypes(): Promise<PersonType[]> {
   const res = await proxy.get<{ data: PersonType[] }>('/proxy/person-types/records')
   return res.data.data
+}
+
+export interface CustomerCacheEntry {
+  person_type_id: number | null
+  person_type: string
+  telephone: string | null
+  address: string | null
+  birthday: string | null
+  email: string | null
+  state: string | null
+  district: string | null
+  province: string | null
+  department: string | null
+}
+
+export interface CustomerCache {
+  data: Record<string, CustomerCacheEntry>
+  total: number
+  last_updated: string | null
+}
+
+export async function fetchCustomerCache(): Promise<CustomerCache> {
+  const res = await proxy.get<CustomerCache>('/customers-cache')
+  return res.data
+}
+
+export async function refreshCustomerCache(): Promise<CustomerCache> {
+  const res = await proxy.post<CustomerCache>('/customers-cache/refresh')
+  return res.data
 }
 
 function buildParams(filter: SalesFilter, page: number, products = true) {
@@ -140,6 +171,7 @@ function normalizeSaleNote(note: SaleNoteRaw): SaleRecord {
 
   return {
     id: note.id,
+    customer_id: note.customer_id,
     date_of_issue: note.date_of_issue,
     customer_name: note.customer_name,
     customer_number: note.customer_number,
