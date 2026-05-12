@@ -6,10 +6,14 @@ import {
   BarElement, CategoryScale, LinearScale,
 } from 'chart.js'
 import {
-  fetchAllSalesRecords, fetchCustomerCache, refreshCustomerCache,
-  fetchPersonTypes,
-  type SaleRecord, type Period, type PersonType, type CustomerCacheEntry, type LoadProgress,
+  fetchCustomerCache, refreshCustomerCache, fetchPersonTypes,
+  type SaleRecord, type Period, type PersonType, type CustomerCacheEntry,
 } from '../services/proxy'
+import {
+  loadRecordsForRange, getMonthsStatus, isCacheable, currentMonthKey,
+  type AnalyticsProgress, type MonthStatus,
+} from '../services/analytics'
+import { clearMonth, clearAllCache } from '../services/cache'
 
 ChartJS.register(ArcElement, Tooltip, Legend, BarElement, CategoryScale, LinearScale)
 
@@ -33,7 +37,8 @@ const periodLabels: Record<Period, string> = {
 const records = ref<SaleRecord[]>([])
 const loading = ref(false)
 const error = ref<string | null>(null)
-const loadProgress = ref<LoadProgress | null>(null)
+const loadProgress = ref<AnalyticsProgress | null>(null)
+const monthsStatus = ref<MonthStatus[]>([])
 
 
 // ── Catálogo de clientes ──────────────────────────────────────────────────────
@@ -331,24 +336,26 @@ const inactiveClients = computed(() => {
 
 // ── Clientes valiosos perdidos ────────────────────────────────────────────────
 
+type ChurnedSortKey = 'total' | 'count'
+const churnedSortKey = ref<ChurnedSortKey>('total')
 const minDaysInactive = ref(30)
 const daysOptions = [15, 30, 60, 90]
 
 const churnedHighValue = computed(() =>
   inactiveClients.value
     .filter((r) => r.days_inactive >= minDaysInactive.value)
-    .sort((a, b) => b.total - a.total),
+    .sort((a, b) => b[churnedSortKey.value] - a[churnedSortKey.value]),
 )
 
-function buildFilter() {
-  return {
-    period: period.value,
-    dateStart: dateStart.value,
-    dateEnd: dateEnd.value,
-    monthStart: monthStart.value,
-    monthEnd: monthEnd.value,
-    personTypeIds: [],
-  }
+function baseFilter() {
+  return { personTypeIds: [] as number[] }
+}
+
+function effectiveDates() {
+  if (period.value === 'date') return { start: dateStart.value, end: dateStart.value }
+  if (period.value === 'month') return { start: `${monthStart.value}-01`, end: new Date(parseInt(monthStart.value.slice(0,4)), parseInt(monthStart.value.slice(5,7)), 0).toISOString().slice(0,10) }
+  if (period.value === 'between_months') return { start: `${monthStart.value}-01`, end: new Date(parseInt(monthEnd.value.slice(0,4)), parseInt(monthEnd.value.slice(5,7)), 0).toISOString().slice(0,10) }
+  return { start: dateStart.value, end: dateEnd.value }
 }
 
 async function load() {
@@ -356,15 +363,30 @@ async function load() {
   loadProgress.value = null
   error.value = null
   try {
-    records.value = await fetchAllSalesRecords(buildFilter(), (p) => {
+    const { start, end } = effectiveDates()
+    monthsStatus.value = await getMonthsStatus(start, end)
+    records.value = await loadRecordsForRange(start, end, baseFilter(), (p) => {
       loadProgress.value = p
     })
+    monthsStatus.value = await getMonthsStatus(start, end)
   } catch (e) {
     error.value = e instanceof Error ? e.message : 'Error al cargar los datos'
   } finally {
     loading.value = false
     loadProgress.value = null
   }
+}
+
+async function invalidateMonth(monthKey: string) {
+  await clearMonth(monthKey)
+  monthsStatus.value = monthsStatus.value.map((m) =>
+    m.month === monthKey ? { ...m, cached: false } : m,
+  )
+}
+
+async function invalidateAll() {
+  await clearAllCache()
+  monthsStatus.value = monthsStatus.value.map((m) => ({ ...m, cached: false }))
 }
 
 onMounted(async () => {
@@ -504,10 +526,41 @@ onMounted(async () => {
     <div v-if="loading" class="card loading-state">
       <div class="spinner" />
       <p v-if="loadProgress">
-        Cargando… {{ loadProgress.loaded }} / {{ loadProgress.total }} páginas
-        <span class="progress-pct">({{ Math.round(loadProgress.loaded / loadProgress.total * 100) }}%)</span>
+        <span v-if="loadProgress.phase === 'cache'" class="phase-badge cache">caché</span>
+        <span v-else class="phase-badge proxy">proxy</span>
+        {{ loadProgress.label }}
+        <span class="progress-pct">
+          · mes {{ loadProgress.monthsDone }}/{{ loadProgress.monthsTotal }}
+        </span>
       </p>
-      <p v-else>Conectando con el proxy…</p>
+      <p v-else>Conectando…</p>
+    </div>
+
+    <!-- Panel de sincronización -->
+    <div v-if="!loading && monthsStatus.length" class="card sync-panel">
+      <div class="sync-header">
+        <span class="sync-title">Caché local</span>
+        <button class="sync-clear-all" @click="invalidateAll" title="Borrar toda la caché">
+          ✕ Limpiar todo
+        </button>
+      </div>
+      <div class="sync-months">
+        <span
+          v-for="m in monthsStatus"
+          :key="m.month"
+          class="sync-month"
+          :class="{ cached: m.cached, live: m.live, uncached: !m.cached && !m.live }"
+          :title="m.live ? 'En vivo (mes actual)' : m.cached ? 'En caché — click para invalidar' : 'Sin caché'"
+          @click="!m.live && m.cached ? invalidateMonth(m.month) : undefined"
+        >
+          {{ m.month.slice(5) }}/{{ m.month.slice(2,4) }}
+        </span>
+      </div>
+      <div class="sync-legend">
+        <span class="legend-item"><span class="dot cached" />Caché</span>
+        <span class="legend-item"><span class="dot live" />En vivo</span>
+        <span class="legend-item"><span class="dot uncached" />Sin caché</span>
+      </div>
     </div>
 
     <template v-if="!loading && topProducts.length">
@@ -618,7 +671,7 @@ onMounted(async () => {
 
         <!-- Mix de productos -->
         <div class="card">
-          <h2 class="section-title">Mix de productos — % del ingreso</h2>
+          <h2 class="section-title">Ventas por productos — % del ingreso</h2>
           <div class="donut-wrap">
             <Doughnut :data="donutData" :options="donutOptions" />
           </div>
@@ -643,6 +696,7 @@ onMounted(async () => {
                   <th>Teléfono</th>
                   <th class="right">Última compra</th>
                   <th class="right">Días inactivo</th>
+                  <th class="right">Docs</th>
                   <th class="right">Total (S/.)</th>
                 </tr>
               </thead>
@@ -661,6 +715,7 @@ onMounted(async () => {
                       {{ row.days_inactive }}d
                     </span>
                   </td>
+                  <td class="right mono">{{ row.count }}</td>
                   <td class="right mono">{{ fmt(row.total) }}</td>
                 </tr>
               </tbody>
@@ -675,10 +730,16 @@ onMounted(async () => {
               <h2>Clientes valiosos perdidos</h2>
               <span class="section-hint">Mayor importe histórico → urgente a recuperar</span>
             </div>
-            <div class="days-filter">
-              <span class="days-label">Sin comprar más de:</span>
+            <div class="churned-controls">
+              <div class="days-filter">
+                <span class="days-label">Sin comprar más de:</span>
+                <div class="sort-toggle">
+                  <button v-for="d in daysOptions" :key="d" :class="{ active: minDaysInactive === d }" @click="minDaysInactive = d">{{ d }}d</button>
+                </div>
+              </div>
               <div class="sort-toggle">
-                <button v-for="d in daysOptions" :key="d" :class="{ active: minDaysInactive === d }" @click="minDaysInactive = d">{{ d }}d</button>
+                <button :class="{ active: churnedSortKey === 'total' }" @click="churnedSortKey = 'total'">Por importe</button>
+                <button :class="{ active: churnedSortKey === 'count' }" @click="churnedSortKey = 'count'">Por cantidad</button>
               </div>
             </div>
           </div>
@@ -694,6 +755,7 @@ onMounted(async () => {
                   <th>Tipo</th>
                   <th>Teléfono</th>
                   <th class="right">Días inactivo</th>
+                  <th class="right">Docs</th>
                   <th class="right">Total hist (S/.)</th>
                 </tr>
               </thead>
@@ -709,6 +771,7 @@ onMounted(async () => {
                   <td class="right">
                     <span class="days-badge danger">{{ row.days_inactive }}d</span>
                   </td>
+                  <td class="right mono">{{ row.count }}</td>
                   <td class="right mono amount-highlight">{{ fmt(row.total) }}</td>
                 </tr>
               </tbody>
@@ -900,6 +963,13 @@ onMounted(async () => {
   color: #0f172a;
   text-transform: uppercase;
   letter-spacing: 0.05em;
+}
+
+.churned-controls {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 0.4rem;
 }
 
 .days-filter {
@@ -1191,6 +1261,90 @@ input[type='date']:focus { border-color: #3b82f6; background: #fff; }
 @keyframes spin { to { transform: rotate(360deg); } }
 
 .progress-pct { color: #2563eb; font-weight: 700; }
+
+.phase-badge {
+  display: inline-block;
+  padding: 0.1rem 0.4rem;
+  border-radius: 4px;
+  font-size: 0.7rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  margin-right: 0.3rem;
+}
+.phase-badge.cache { background: #dcfce7; color: #16a34a; }
+.phase-badge.proxy { background: #ede9fe; color: #7c3aed; }
+
+.sync-panel {
+  padding: 0.75rem 1.5rem;
+}
+
+.sync-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 0.6rem;
+}
+
+.sync-title {
+  font-size: 0.72rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: #64748b;
+}
+
+.sync-clear-all {
+  background: none;
+  border: none;
+  font-size: 0.72rem;
+  color: #94a3b8;
+  cursor: pointer;
+  padding: 0;
+}
+.sync-clear-all:hover { color: #dc2626; }
+
+.sync-months {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.3rem;
+  margin-bottom: 0.5rem;
+}
+
+.sync-month {
+  padding: 0.2rem 0.45rem;
+  border-radius: 4px;
+  font-size: 0.72rem;
+  font-weight: 600;
+  font-family: monospace;
+  cursor: default;
+}
+.sync-month.cached { background: #dcfce7; color: #16a34a; cursor: pointer; }
+.sync-month.cached:hover { background: #fef2f2; color: #dc2626; }
+.sync-month.live { background: #eff6ff; color: #2563eb; }
+.sync-month.uncached { background: #f1f5f9; color: #94a3b8; }
+
+.sync-legend {
+  display: flex;
+  gap: 1rem;
+}
+
+.legend-item {
+  display: flex;
+  align-items: center;
+  gap: 0.3rem;
+  font-size: 0.7rem;
+  color: #64748b;
+}
+
+.dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  display: inline-block;
+}
+.dot.cached { background: #16a34a; }
+.dot.live { background: #2563eb; }
+.dot.uncached { background: #cbd5e1; }
 
 .empty {
   padding: 3rem;
