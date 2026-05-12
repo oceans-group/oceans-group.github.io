@@ -8,7 +8,7 @@ import {
 import {
   fetchAllSalesRecords, fetchCustomerCache, refreshCustomerCache,
   fetchPersonTypes,
-  type SaleRecord, type Period, type PersonType, type CustomerCacheEntry,
+  type SaleRecord, type Period, type PersonType, type CustomerCacheEntry, type LoadProgress,
 } from '../services/proxy'
 
 ChartJS.register(ArcElement, Tooltip, Legend, BarElement, CategoryScale, LinearScale)
@@ -33,6 +33,7 @@ const periodLabels: Record<Period, string> = {
 const records = ref<SaleRecord[]>([])
 const loading = ref(false)
 const error = ref<string | null>(null)
+const loadProgress = ref<LoadProgress | null>(null)
 
 
 // ── Catálogo de clientes ──────────────────────────────────────────────────────
@@ -352,13 +353,17 @@ function buildFilter() {
 
 async function load() {
   loading.value = true
+  loadProgress.value = null
   error.value = null
   try {
-    records.value = await fetchAllSalesRecords(buildFilter())
+    records.value = await fetchAllSalesRecords(buildFilter(), (p) => {
+      loadProgress.value = p
+    })
   } catch (e) {
     error.value = e instanceof Error ? e.message : 'Error al cargar los datos'
   } finally {
     loading.value = false
+    loadProgress.value = null
   }
 }
 
@@ -498,7 +503,11 @@ onMounted(async () => {
 
     <div v-if="loading" class="card loading-state">
       <div class="spinner" />
-      <p>Cargando productos desde el proxy…</p>
+      <p v-if="loadProgress">
+        Cargando… {{ loadProgress.loaded }} / {{ loadProgress.total }} páginas
+        <span class="progress-pct">({{ Math.round(loadProgress.loaded / loadProgress.total * 100) }}%)</span>
+      </p>
+      <p v-else>Conectando con el proxy…</p>
     </div>
 
     <template v-if="!loading && topProducts.length">
@@ -1180,6 +1189,8 @@ input[type='date']:focus { border-color: #3b82f6; background: #fff; }
   animation: spin 0.7s linear infinite;
 }
 @keyframes spin { to { transform: rotate(360deg); } }
+
+.progress-pct { color: #2563eb; font-weight: 700; }
 
 .empty {
   padding: 3rem;

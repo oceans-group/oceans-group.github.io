@@ -31,10 +31,12 @@ export interface SaleRecord {
   source?: 'document' | 'sale_note'
 }
 
-interface SalesResponse {
-  data: SaleRecord[]
+interface PagedResponse<T> {
+  data: T[]
   meta: { current_page: number; last_page: number; total: number; per_page: string }
 }
+
+type SalesResponse = PagedResponse<SaleRecord>
 
 interface SaleNoteItemRaw {
   index: number
@@ -56,10 +58,7 @@ interface SaleNoteRaw {
   payments_methods: string[]
 }
 
-interface SaleNotesResponse {
-  data: SaleNoteRaw[]
-  meta: { current_page: number; last_page: number; total: number; per_page: string }
-}
+type SaleNotesResponse = PagedResponse<SaleNoteRaw>
 
 export type Period = 'between_dates' | 'between_months' | 'month' | 'date'
 
@@ -75,11 +74,6 @@ export interface SalesFilter {
 export interface PersonType {
   id: number
   description: string
-}
-
-export async function fetchPersonTypes(): Promise<PersonType[]> {
-  const res = await proxy.get<{ data: PersonType[] }>('/proxy/person-types/records')
-  return res.data.data
 }
 
 export interface CustomerCacheEntry {
@@ -101,6 +95,17 @@ export interface CustomerCache {
   last_updated: string | null
 }
 
+export interface LoadProgress {
+  loaded: number
+  total: number
+  label: string
+}
+
+export async function fetchPersonTypes(): Promise<PersonType[]> {
+  const res = await proxy.get<{ data: PersonType[] }>('/proxy/person-types/records')
+  return res.data.data
+}
+
 export async function fetchCustomerCache(): Promise<CustomerCache> {
   const res = await proxy.get<CustomerCache>('/customers-cache')
   return res.data
@@ -110,6 +115,40 @@ export async function refreshCustomerCache(): Promise<CustomerCache> {
   const res = await proxy.post<CustomerCache>('/customers-cache/refresh')
   return res.data
 }
+
+// ── Utilidad: fetch paginado con concurrencia limitada ────────────────────────
+
+const BATCH_SIZE = 5
+
+async function fetchAllPages<T>(
+  fetchPage: (page: number) => Promise<PagedResponse<T>>,
+  onProgress?: (p: LoadProgress, label: string) => void,
+  label = '',
+): Promise<T[]> {
+  const first = await fetchPage(1)
+  const { last_page } = first.meta
+
+  if (onProgress) onProgress({ loaded: 1, total: last_page, label }, label)
+  if (last_page === 1) return first.data
+
+  const result = [...first.data]
+  let loaded = 1
+
+  for (let page = 2; page <= last_page; page += BATCH_SIZE) {
+    const batch = Array.from(
+      { length: Math.min(BATCH_SIZE, last_page - page + 1) },
+      (_, i) => fetchPage(page + i),
+    )
+    const responses = await Promise.all(batch)
+    loaded += responses.length
+    result.push(...responses.flatMap((r) => r.data))
+    if (onProgress) onProgress({ loaded, total: last_page, label }, label)
+  }
+
+  return result
+}
+
+// ── Params ────────────────────────────────────────────────────────────────────
 
 function buildParams(filter: SalesFilter, page: number, products = true) {
   return {
@@ -132,16 +171,6 @@ async function fetchSalesPage(filter: SalesFilter, page: number): Promise<SalesR
     params: buildParams(filter, page),
   })
   return res.data
-}
-
-async function fetchAllSalesPages(filter: SalesFilter): Promise<SaleRecord[]> {
-  const first = await fetchSalesPage(filter, 1)
-  const { last_page } = first.meta
-  if (last_page === 1) return first.data
-  const rest = await Promise.all(
-    Array.from({ length: last_page - 1 }, (_, i) => fetchSalesPage(filter, i + 2)),
-  )
-  return [...first.data, ...rest.flatMap((r) => r.data)]
 }
 
 // ── Notas de venta ────────────────────────────────────────────────────────────
@@ -168,7 +197,6 @@ function normalizeSaleNote(note: SaleNoteRaw): SaleRecord {
       unit_type_id: 'NIU',
     }
   })
-
   return {
     id: note.id,
     customer_id: note.customer_id,
@@ -193,23 +221,34 @@ async function fetchSaleNotesPage(filter: SalesFilter, page: number): Promise<Sa
   return res.data
 }
 
-async function fetchAllSaleNotes(filter: SalesFilter): Promise<SaleRecord[]> {
-  const first = await fetchSaleNotesPage(filter, 1)
-  const { last_page } = first.meta
-  if (last_page === 1) return first.data.map(normalizeSaleNote)
-  const rest = await Promise.all(
-    Array.from({ length: last_page - 1 }, (_, i) => fetchSaleNotesPage(filter, i + 2)),
-  )
-  return [...first.data, ...rest.flatMap((r) => r.data)].map(normalizeSaleNote)
-}
+// ── Fetch unificado con progreso ──────────────────────────────────────────────
 
-// ── Fetch unificado ───────────────────────────────────────────────────────────
+export async function fetchAllSalesRecords(
+  filter: SalesFilter,
+  onProgress?: (p: LoadProgress) => void,
+): Promise<SaleRecord[]> {
+  const progress = { docs: { loaded: 0, total: 0 }, notes: { loaded: 0, total: 0 } }
 
-export async function fetchAllSalesRecords(filter: SalesFilter): Promise<SaleRecord[]> {
+  function report() {
+    if (!onProgress) return
+    const loaded = progress.docs.loaded + progress.notes.loaded
+    const total = progress.docs.total + progress.notes.total
+    onProgress({ loaded, total, label: `Página ${loaded} de ${total || '?'}` })
+  }
+
   const [documents, saleNotes] = await Promise.all([
-    fetchAllSalesPages(filter),
-    fetchAllSaleNotes(filter),
+    fetchAllPages(
+      (p) => fetchSalesPage(filter, p),
+      ({ loaded, total }) => { progress.docs = { loaded, total }; report() },
+      'docs',
+    ),
+    fetchAllPages(
+      (p) => fetchSaleNotesPage(filter, p).then((r) => ({ ...r, data: r.data.map(normalizeSaleNote) })) as Promise<PagedResponse<SaleRecord>>,
+      ({ loaded, total }) => { progress.notes = { loaded, total }; report() },
+      'notes',
+    ),
   ])
+
   return [
     ...documents.map((r) => ({ ...r, source: 'document' as const })),
     ...saleNotes,
