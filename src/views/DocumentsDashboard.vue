@@ -66,7 +66,9 @@ const sorted = computed(() => {
   return [...filtered.value].sort((a, b) => {
     const va = a[sortKey.value]
     const vb = b[sortKey.value]
-    const cmp = String(va) < String(vb) ? -1 : String(va) > String(vb) ? 1 : 0
+    const cmp = typeof va === 'number' && typeof vb === 'number'
+      ? va - vb
+      : String(va).localeCompare(String(vb), 'es', { numeric: true })
     return sortAsc.value ? cmp : -cmp
   })
 })

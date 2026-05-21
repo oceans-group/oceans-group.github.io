@@ -8,13 +8,13 @@
         <span class="header-name">Oceans Analytics</span>
       </div>
       <nav class="nav">
-        <RouterLink to="/" class="nav-link">
+        <!-- <RouterLink to="/api" class="nav-link">
           <span class="source-badge api">API</span>
           Documentos
-        </RouterLink>
-        <RouterLink to="/productos" class="nav-link">
+        </RouterLink> -->
+        <RouterLink to="/" class="nav-link">
           <span class="source-badge proxy">Proxy</span>
-          Productos
+          Documentos
         </RouterLink>
       </nav>
     </header>

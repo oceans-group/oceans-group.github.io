@@ -6,12 +6,12 @@ const router = createRouter({
   history: createWebHashHistory(),
   routes: [
     {
-      path: '/',
+      path: '/api',
       name: 'documents',
       component: DocumentsDashboard,
     },
     {
-      path: '/productos',
+      path: '/',
       name: 'products',
       component: ProductsDashboard,
     },

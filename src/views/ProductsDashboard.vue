@@ -1,19 +1,20 @@
 <script setup lang="ts">
 import { ref, computed, onMounted } from 'vue'
+import * as XLSX from 'xlsx'
 import { Doughnut, Bar } from 'vue-chartjs'
 import {
   Chart as ChartJS, ArcElement, Tooltip, Legend,
   BarElement, CategoryScale, LinearScale,
 } from 'chart.js'
 import {
-  fetchCustomerCache, refreshCustomerCache, fetchPersonTypes,
-  type SaleRecord, type Period, type PersonType, type CustomerCacheEntry,
+  fetchAllCustomers, fetchPersonTypes,
+  type SaleRecord, type ExpenseRecord, type Period, type PersonType, type CustomerCacheEntry,
 } from '../services/proxy'
 import {
-  loadRecordsForRange, getMonthsStatus, isCacheable, currentMonthKey,
+  loadRecordsForRange, loadExpensesForRange, getMonthsStatus, isCacheable,
   type AnalyticsProgress, type MonthStatus,
 } from '../services/analytics'
-import { clearMonth, clearAllCache } from '../services/cache'
+import { clearMonth, clearExpenseMonth, clearAllCache, getCustomerCacheFromDB, saveCustomerCacheToDB } from '../services/cache'
 
 ChartJS.register(ArcElement, Tooltip, Legend, BarElement, CategoryScale, LinearScale)
 
@@ -35,10 +36,15 @@ const periodLabels: Record<Period, string> = {
 }
 
 const records = ref<SaleRecord[]>([])
+const expenses = ref<ExpenseRecord[]>([])
 const loading = ref(false)
+const loadingCustomers = ref(false)
+const customerProgress = ref({ loaded: 0, total: 0 })
 const error = ref<string | null>(null)
 const loadProgress = ref<AnalyticsProgress | null>(null)
+const loadProgressExp = ref<AnalyticsProgress | null>(null)
 const monthsStatus = ref<MonthStatus[]>([])
+const showCachePanel = ref(false)
 
 
 // ── Catálogo de clientes ──────────────────────────────────────────────────────
@@ -51,21 +57,39 @@ const selectedPersonTypeIds = ref<number[]>([])
 const dropdownOpen = ref(false)
 
 async function loadCustomerCache() {
+  // 1. IndexedDB primero (TTL 48h) — instantáneo, sin indicador
+  const local = await getCustomerCacheFromDB()
+  if (local) {
+    customerMap.value = local.data
+    cacheLastUpdated.value = local.cached_at
+    return
+  }
+  // 2. Sin caché válida → fetch paginado del proxy con indicador
+  loadingCustomers.value = true
+  customerProgress.value = { loaded: 0, total: 0 }
   try {
-    const cache = await fetchCustomerCache()
-    customerMap.value = cache.data
-    cacheLastUpdated.value = cache.last_updated
+    const data = await fetchAllCustomers((loaded, total) => {
+      customerProgress.value = { loaded, total }
+    })
+    const now = new Date().toISOString()
+    customerMap.value = data
+    cacheLastUpdated.value = now
+    await saveCustomerCacheToDB(data, now)
   } catch {
     customerMap.value = {}
+  } finally {
+    loadingCustomers.value = false
   }
 }
 
 async function handleRefreshCache() {
   cacheRefreshing.value = true
   try {
-    const cache = await refreshCustomerCache()
-    customerMap.value = cache.data
-    cacheLastUpdated.value = cache.last_updated
+    const data = await fetchAllCustomers()
+    const now = new Date().toISOString()
+    customerMap.value = data
+    cacheLastUpdated.value = now
+    await saveCustomerCacheToDB(data, now)
   } finally {
     cacheRefreshing.value = false
   }
@@ -151,6 +175,7 @@ const topProducts = computed<ProductRow[]>(() => {
   const map = new Map<string, ProductRow>()
   for (const record of activeRecords.value) {
     for (const item of record.items ?? []) {
+      if (!item.internal_id) continue
       const key = item.internal_id
       const row = map.get(key) ?? { internal_id: item.internal_id, description: item.description, quantity: 0, total: 0 }
       row.quantity += Number(item.quantity)
@@ -169,9 +194,64 @@ const CHART_COLORS = [
   '#0891b2', '#9333ea', '#65a30d', '#ea580c', '#be185d',
 ]
 
+// ── Mix por tipo de cliente ───────────────────────────────────────────────────
+
+type ClientTypeSortMode = 'total' | 'count'
+const clientTypeSortMode = ref<ClientTypeSortMode>('total')
+
+const clientTypeDonutData = computed(() => {
+  const map = new Map<string, { total: number; count: number }>()
+  for (const r of topClientsGeneral.value) {
+    // Consulta directa al customerMap para evitar datos cacheados obsoletos
+    const cm = customerMap.value[r.customer_id]
+    const rawType = cm?.person_type ?? ''
+    const key = rawType.trim() !== '' && rawType !== '—' ? rawType : 'Sin clasificar'
+    const entry = map.get(key) ?? { total: 0, count: 0 }
+    entry.total += r.total
+    entry.count += r.count
+    map.set(key, entry)
+  }
+  const entries = [...map.entries()].sort((a, b) =>
+    clientTypeSortMode.value === 'total' ? b[1].total - a[1].total : b[1].count - a[1].count,
+  )
+  return {
+    labels: entries.map(([k]) => k),
+    datasets: [{
+      data: entries.map(([, v]) => clientTypeSortMode.value === 'total' ? v.total : v.count),
+      backgroundColor: CHART_COLORS,
+      borderWidth: 2,
+      borderColor: '#fff',
+    }],
+  }
+})
+
+const clientTypeDonutOptions = computed(() => ({
+  responsive: true,
+  maintainAspectRatio: false,
+  plugins: {
+    legend: { position: 'right' as const, labels: { font: { size: 11 }, padding: 12, usePointStyle: true, boxWidth: 8 } },
+    tooltip: {
+      callbacks: {
+        label: (ctx: { parsed: number | null }) => {
+          const vals = clientTypeDonutData.value.datasets[0]?.data ?? []
+          const total = vals.reduce((a, b) => a + b, 0)
+          const val = ctx.parsed ?? 0
+          const pct = total > 0 ? ((val / total) * 100).toFixed(1) : '0.0'
+          if (clientTypeSortMode.value === 'total')
+            return ` S/. ${val.toLocaleString('es-PE', { minimumFractionDigits: 2 })} (${pct}%)`
+          return ` ${val} docs (${pct}%)`
+        },
+      },
+    },
+  },
+}))
+
 const donutData = computed(() => {
-  const top10 = topProducts.value.slice(0, 10)
-  const otherTotal = topProducts.value.slice(10).reduce((s, p) => s + p.total, 0)
+  // Siempre por importe para que el % de ingreso sea correcto,
+  // independiente del sort activo en la tabla (cantidad vs importe)
+  const byTotal = [...topProducts.value].sort((a, b) => b.total - a.total)
+  const top10 = byTotal.slice(0, 10)
+  const otherTotal = byTotal.slice(10).reduce((s, p) => s + p.total, 0)
   const labels = top10.map((p) => p.description)
   const data = top10.map((p) => p.total)
   if (otherTotal > 0) {
@@ -214,36 +294,56 @@ function fmt(n: number) {
   return n.toLocaleString('es-PE', { minimumFractionDigits: 2 })
 }
 
-// ── Ventas mensuales ─────────────────────────────────────────────────────────
+// ── Gastos ────────────────────────────────────────────────────────────────────
+
+const totalExpenses = computed(() => expenses.value.reduce((s, e) => s + Number(e.total), 0))
+
+interface ExpenseTypeRow { description: string; count: number; total: number }
+
+const expensesByType = computed<ExpenseTypeRow[]>(() => {
+  const map = new Map<string, ExpenseTypeRow>()
+  for (const e of expenses.value) {
+    const key = e.expense_type_description || 'Sin tipo'
+    const row = map.get(key) ?? { description: key, count: 0, total: 0 }
+    row.count += 1
+    row.total += Number(e.total)
+    map.set(key, row)
+  }
+  return [...map.values()].sort((a, b) => b.total - a.total)
+})
+
+const maxExpenseTotal = computed(() => expensesByType.value[0]?.total ?? 1)
+
+// ── Ventas vs Gastos mensuales ────────────────────────────────────────────────
 
 const monthlyBarData = computed(() => {
-  const map = new Map<string, { total: number; count: number }>()
+  const salesMap = new Map<string, number>()
+  const expMap = new Map<string, number>()
   for (const r of activeRecords.value) {
-    const month = r.date_of_issue.slice(0, 7)
-    const entry = map.get(month) ?? { total: 0, count: 0 }
-    entry.total += Number(r.total)
-    entry.count += 1
-    map.set(month, entry)
+    const m = r.date_of_issue.slice(0, 7)
+    salesMap.set(m, (salesMap.get(m) ?? 0) + Number(r.total))
   }
-  const labels = [...map.keys()].sort()
+  for (const e of expenses.value) {
+    const m = e.date_of_issue.slice(0, 7)
+    expMap.set(m, (expMap.get(m) ?? 0) + Number(e.total))
+  }
+  const labels = [...new Set([...salesMap.keys(), ...expMap.keys()])].sort()
   return {
     labels,
     datasets: [
       {
-        label: 'Importe (S/.)',
-        data: labels.map((l) => map.get(l)!.total),
+        label: 'Ingresos (S/.)',
+        data: labels.map((l) => salesMap.get(l) ?? 0),
         backgroundColor: '#2563eb',
-        borderRadius: 6,
+        borderRadius: 4,
         borderSkipped: false,
-        yAxisID: 'y',
       },
       {
-        label: 'Nº documentos',
-        data: labels.map((l) => map.get(l)!.count),
-        backgroundColor: '#7c3aed',
-        borderRadius: 6,
+        label: 'Gastos (S/.)',
+        data: labels.map((l) => expMap.get(l) ?? 0),
+        backgroundColor: '#dc2626',
+        borderRadius: 4,
         borderSkipped: false,
-        yAxisID: 'y2',
       },
     ],
   }
@@ -257,29 +357,19 @@ const monthlyBarOptions = {
     legend: { position: 'top' as const, labels: { font: { size: 12 }, usePointStyle: true, boxWidth: 8 } },
     tooltip: {
       callbacks: {
-        label: (ctx: { dataset: { label?: string }; parsed: { y: number | null } }) => {
-          const val = ctx.parsed.y ?? 0
-          if (ctx.dataset.label?.startsWith('Importe'))
-            return ` S/. ${val.toLocaleString('es-PE', { minimumFractionDigits: 2 })}`
-          return ` ${val} docs`
-        },
+        label: (ctx: { dataset: { label?: string }; parsed: { y: number | null } }) =>
+          ` S/. ${(ctx.parsed.y ?? 0).toLocaleString('es-PE', { minimumFractionDigits: 2 })}`,
       },
     },
   },
   scales: {
     x: { grid: { display: false }, ticks: { font: { size: 11 }, color: '#64748b' } },
     y: {
-      position: 'left' as const,
       grid: { color: '#f1f5f9' },
       ticks: {
-        font: { size: 11 }, color: '#2563eb',
+        font: { size: 11 }, color: '#64748b',
         callback: (v: number | string) => 'S/. ' + Number(v).toLocaleString('es-PE', { minimumFractionDigits: 0 }),
       },
-    },
-    y2: {
-      position: 'right' as const,
-      grid: { drawOnChartArea: false },
-      ticks: { font: { size: 11 }, color: '#7c3aed' },
     },
   },
 }
@@ -293,6 +383,8 @@ interface TopClientRow {
   customer_id: number
   customer_number: string
   customer_name: string
+  person_type: string
+  telephone: string
   count: number
   total: number
   last_purchase: string
@@ -304,10 +396,13 @@ const topClientsGeneral = computed<TopClientRow[]>(() => {
   const map = new Map<string, TopClientRow>()
   for (const r of activeRecords.value) {
     const existing = map.get(r.customer_number)
+    const cm = customerMap.value[r.customer_id]
     const row: TopClientRow = existing ?? {
       customer_id: r.customer_id,
       customer_number: r.customer_number,
       customer_name: r.customer_name,
+      person_type: cm?.person_type || '—',
+      telephone: cm?.telephone || '—',
       count: 0,
       total: 0,
       last_purchase: r.date_of_issue,
@@ -347,6 +442,42 @@ const churnedHighValue = computed(() =>
     .sort((a, b) => b[churnedSortKey.value] - a[churnedSortKey.value]),
 )
 
+function exportToExcel(rows: object[], filename: string) {
+  const ws = XLSX.utils.json_to_sheet(rows)
+  const wb = XLSX.utils.book_new()
+  XLSX.utils.book_append_sheet(wb, ws, 'Datos')
+  XLSX.writeFile(wb, `${filename}.xlsx`)
+}
+
+function exportInactiveClients() {
+  const rows = inactiveClients.value.map((r, i) => ({
+    '#': i + 1,
+    'Cliente': r.customer_name,
+    'DNI/RUC': r.customer_number,
+    'Tipo': customerMap.value[r.customer_id]?.person_type || '—',
+    'Teléfono': customerMap.value[r.customer_id]?.telephone || '—',
+    'Última compra': r.last_purchase,
+    'Días inactivo': r.days_inactive,
+    'Docs': r.count,
+    'Total S/.': r.total,
+  }))
+  exportToExcel(rows, 'clientes-sin-compras-recientes')
+}
+
+function exportChurnedClients() {
+  const rows = churnedHighValue.value.map((r, i) => ({
+    '#': i + 1,
+    'Cliente': r.customer_name,
+    'DNI/RUC': r.customer_number,
+    'Tipo': customerMap.value[r.customer_id]?.person_type || '—',
+    'Teléfono': customerMap.value[r.customer_id]?.telephone || '—',
+    'Días inactivo': r.days_inactive,
+    'Docs': r.count,
+    'Total histórico S/.': r.total,
+  }))
+  exportToExcel(rows, 'clientes-valiosos-perdidos')
+}
+
 function baseFilter() {
   return { personTypeIds: [] as number[] }
 }
@@ -365,16 +496,34 @@ async function load() {
   try {
     const { start, end } = effectiveDates()
     monthsStatus.value = await getMonthsStatus(start, end)
-    records.value = await loadRecordsForRange(start, end, baseFilter(), (p) => {
-      loadProgress.value = p
-    })
+    const [recs, exps] = await Promise.all([
+      loadRecordsForRange(start, end, baseFilter(), (p) => { loadProgress.value = p }),
+      loadExpensesForRange(start, end, baseFilter(), (p) => { loadProgressExp.value = p }).catch((e) => {
+        console.error('[gastos]', e?.response?.data ?? e?.message ?? e)
+        return []
+      }),
+    ])
+    records.value = recs
+    expenses.value = exps
     monthsStatus.value = await getMonthsStatus(start, end)
   } catch (e) {
     error.value = e instanceof Error ? e.message : 'Error al cargar los datos'
   } finally {
     loading.value = false
     loadProgress.value = null
+    loadProgressExp.value = null
   }
+}
+
+async function forceReload() {
+  for (const m of monthsStatus.value) {
+    if (m.cached || m.partialCached) {
+      await clearMonth(m.month)
+      await clearExpenseMonth(m.month)
+    }
+  }
+  monthsStatus.value = monthsStatus.value.map((m) => ({ ...m, cached: false, partialCached: false }))
+  await load()
 }
 
 async function invalidateMonth(monthKey: string) {
@@ -390,9 +539,10 @@ async function invalidateAll() {
 }
 
 onMounted(async () => {
+  // Clientes primero — el filtro por tipo los necesita listos antes de cargar ventas
+  await loadCustomerCache()
   await Promise.all([
     load(),
-    loadCustomerCache(),
     fetchPersonTypes().then((r) => { personTypes.value = r }).catch(() => {}),
   ])
 })
@@ -431,6 +581,10 @@ onMounted(async () => {
           {{ loading ? 'Cargando…' : 'Buscar' }}
         </button>
 
+        <button class="btn-force-reload" @click="forceReload" :disabled="loading" title="Elimina el caché del rango actual y recarga todo desde el proxy">
+          ↻ Recargar datos
+        </button>
+
         <div v-if="personTypes.length" class="multiselect-wrap">
           <span class="multiselect-label">Tipo de cliente</span>
           <div class="multiselect-row">
@@ -452,13 +606,15 @@ onMounted(async () => {
               </div>
             </div>
           </div>
+           <!-- <button
+            class="btn-refresh" -->
           <button
-            class="btn-refresh"
+            class="btn-force-reload"
             @click="handleRefreshCache"
             :disabled="cacheRefreshing"
             :title="cacheLastUpdated ? `Actualizado: ${new Date(cacheLastUpdated).toLocaleString('es-PE')}` : 'Sin datos'"
           >
-            {{ cacheRefreshing ? 'Actualizando…' : '↻ Clientes' }}
+            {{ cacheRefreshing ? 'Actualizando…' : '↻ Recargar clientes' }}
           </button>
           </div>
         </div>
@@ -501,16 +657,64 @@ onMounted(async () => {
         </div>
       </div>
 
+      <!-- Botón ⚙ Caché + Popover -->
+      <div v-if="!loading && monthsStatus.length" class="cache-btn-wrap">
+        <div v-if="showCachePanel" class="cache-backdrop" @click="showCachePanel = false" />
+        <button
+          class="btn-cache-toggle"
+          :class="{ active: showCachePanel }"
+          @click="showCachePanel = !showCachePanel"
+          title="Estado de caché local"
+        >
+          ⚙ Caché
+        </button>
+        <div v-if="showCachePanel" class="cache-popover">
+          <div class="sync-header">
+            <span class="sync-title">Caché local</span>
+            <button class="sync-clear-all" @click="invalidateAll">✕ Limpiar todo</button>
+          </div>
+          <div class="sync-months">
+            <span
+              v-for="m in monthsStatus"
+              :key="m.month"
+              class="sync-month"
+              :class="{ cached: m.cached, live: m.live, uncached: !m.cached && !m.live, partial: m.partialCached }"
+              :title="m.live ? 'En vivo' : m.cached ? 'En caché — click para invalidar' : m.partialCached ? 'Parcial' : 'Sin caché'"
+              @click="!m.live && (m.cached || m.partialCached) ? invalidateMonth(m.month) : undefined"
+            >
+              {{ m.month.slice(5) }}/{{ m.month.slice(2,4) }}
+            </span>
+          </div>
+          <div class="sync-legend">
+            <span class="legend-item"><span class="dot cached" />Caché</span>
+            <span class="legend-item"><span class="dot live" />En vivo</span>
+            <span class="legend-item"><span class="dot uncached" />Sin caché</span>
+          </div>
+        </div>
+      </div>
+
       </div>
 
       <div v-if="!loading && activeRecords.length" class="summary-strip">
         <span class="summary-item">
-          <span class="summary-label">Total</span>
+          <span class="summary-label">Ingresos</span>
           <span class="summary-value">S/. {{ fmt(totalAmount) }}</span>
         </span>
         <span class="summary-sep">·</span>
         <span class="summary-item">
-          <span class="summary-label">Documentos</span>
+          <span class="summary-label">Gastos</span>
+          <span class="summary-value expense-val">S/. {{ fmt(totalExpenses) }}</span>
+        </span>
+        <span class="summary-sep">·</span>
+        <span class="summary-item">
+          <span class="summary-label">Utilidad</span>
+          <span class="summary-value" :class="totalAmount - totalExpenses >= 0 ? 'profit-pos' : 'profit-neg'">
+            S/. {{ fmt(totalAmount - totalExpenses) }}
+          </span>
+        </span>
+        <span class="summary-sep">·</span>
+        <span class="summary-item">
+          <span class="summary-label">Docs</span>
           <span class="summary-value">{{ totalDocs }}</span>
         </span>
         <span class="summary-sep">·</span>
@@ -523,45 +727,45 @@ onMounted(async () => {
 
     <div v-if="error" class="error">{{ error }}</div>
 
+    <div v-if="loadingCustomers" class="card loading-state">
+      <div class="spinner" />
+      <p>Cargando catálogo de clientes…</p>
+      <div v-if="customerProgress.total > 0" class="customer-progress">
+        <div class="customer-progress-bar">
+          <div
+            class="customer-progress-fill"
+            :style="{ width: Math.round(customerProgress.loaded / customerProgress.total * 100) + '%' }"
+          />
+        </div>
+        <span class="customer-progress-label">
+          {{ customerProgress.loaded }} / {{ customerProgress.total }} páginas
+          ({{ Math.round(customerProgress.loaded / customerProgress.total * 100) }}%)
+        </span>
+      </div>
+    </div>
+
     <div v-if="loading" class="card loading-state">
       <div class="spinner" />
-      <p v-if="loadProgress">
-        <span v-if="loadProgress.phase === 'cache'" class="phase-badge cache">caché</span>
-        <span v-else class="phase-badge proxy">proxy</span>
-        {{ loadProgress.label }}
-        <span class="progress-pct">
-          · mes {{ loadProgress.monthsDone }}/{{ loadProgress.monthsTotal }}
-        </span>
-      </p>
-      <p v-else>Conectando…</p>
+      <div class="progress-rows">
+        <p v-if="loadProgress">
+          <span class="progress-tag">Ventas</span>
+          <span v-if="loadProgress.phase === 'cache'" class="phase-badge cache">caché</span>
+          <span v-else class="phase-badge proxy">proxy</span>
+          {{ loadProgress.label }}
+          <span class="progress-pct">· {{ loadProgress.monthsDone }}/{{ loadProgress.monthsTotal }}</span>
+        </p>
+        <p v-if="loadProgressExp">
+          <span class="progress-tag">Gastos</span>
+          <span v-if="loadProgressExp.phase === 'cache'" class="phase-badge cache">caché</span>
+          <span v-else class="phase-badge proxy">proxy</span>
+          {{ loadProgressExp.label }}
+          <span class="progress-pct">· {{ loadProgressExp.monthsDone }}/{{ loadProgressExp.monthsTotal }}</span>
+        </p>
+        <p v-if="!loadProgress && !loadProgressExp">Conectando…</p>
+      </div>
     </div>
 
     <!-- Panel de sincronización -->
-    <div v-if="!loading && monthsStatus.length" class="card sync-panel">
-      <div class="sync-header">
-        <span class="sync-title">Caché local</span>
-        <button class="sync-clear-all" @click="invalidateAll" title="Borrar toda la caché">
-          ✕ Limpiar todo
-        </button>
-      </div>
-      <div class="sync-months">
-        <span
-          v-for="m in monthsStatus"
-          :key="m.month"
-          class="sync-month"
-          :class="{ cached: m.cached, live: m.live, uncached: !m.cached && !m.live }"
-          :title="m.live ? 'En vivo (mes actual)' : m.cached ? 'En caché — click para invalidar' : 'Sin caché'"
-          @click="!m.live && m.cached ? invalidateMonth(m.month) : undefined"
-        >
-          {{ m.month.slice(5) }}/{{ m.month.slice(2,4) }}
-        </span>
-      </div>
-      <div class="sync-legend">
-        <span class="legend-item"><span class="dot cached" />Caché</span>
-        <span class="legend-item"><span class="dot live" />En vivo</span>
-        <span class="legend-item"><span class="dot uncached" />Sin caché</span>
-      </div>
-    </div>
 
     <template v-if="!loading && topProducts.length">
       <!-- Fila 1 -->
@@ -595,8 +799,8 @@ onMounted(async () => {
                     <span class="client-name">{{ row.customer_name }}</span>
                     <span class="client-ruc mono">{{ row.customer_number }}</span>
                   </td>
-                  <td class="type-cell">{{ customerMap[row.customer_id]?.person_type || '—' }}</td>
-                  <td class="mono">{{ customerMap[row.customer_id]?.telephone || '—' }}</td>
+                  <td class="type-cell">{{ row.person_type }}</td>
+                  <td class="mono">{{ row.telephone }}</td>
                   <td class="right mono">{{ row.count }}</td>
                   <td class="right mono">{{ fmt(row.total) }}</td>
                   <!-- <td class="bar-col">
@@ -613,7 +817,7 @@ onMounted(async () => {
         <!-- Ventas mensuales -->
         <div class="card">
           <div class="section-header">
-            <h2 class="section-title">Ventas mensuales</h2>
+            <h2 class="section-title">Balance mensual</h2>
             <span class="section-hint">Usa "Rango de meses" para mejor visualización</span>
           </div>
           <div class="bar-chart-wrap">
@@ -671,10 +875,63 @@ onMounted(async () => {
 
         <!-- Mix de productos -->
         <div class="card">
-          <h2 class="section-title">Ventas por productos — % del ingreso</h2>
+          <h2 class="section-title">Mix de productos — % del ingreso</h2>
           <div class="donut-wrap">
             <Doughnut :data="donutData" :options="donutOptions" />
           </div>
+        </div>
+      </div>
+
+      <!-- Fila 2b: Donuts de participación por tipo de cliente -->
+      <div class="grid-2col">
+        <div class="card">
+          <div class="section-header">
+            <h2 class="section-title">Participación por tipo de cliente</h2>
+            <div class="sort-toggle">
+              <button :class="{ active: clientTypeSortMode === 'total' }" @click="clientTypeSortMode = 'total'">Por importe</button>
+              <button :class="{ active: clientTypeSortMode === 'count' }" @click="clientTypeSortMode = 'count'">Por cantidad</button>
+            </div>
+          </div>
+          <div class="donut-wrap">
+            <Doughnut :data="clientTypeDonutData" :options="clientTypeDonutOptions" />
+          </div>
+        </div>
+
+        <!-- Espacio para futura gráfica o dejarlo vacío -->
+        <div />
+      </div>
+
+      <!-- Gastos -->
+      <div v-if="expenses.length" class="card">
+        <div class="section-header">
+          <h2 class="section-title">Gastos por tipo</h2>
+          <span class="section-hint">Total S/. {{ fmt(totalExpenses) }} en {{ expenses.length }} registros</span>
+        </div>
+        <div class="table-scroll">
+          <table>
+            <thead>
+              <tr>
+                <th>#</th>
+                <th>Tipo de gasto</th>
+                <th class="right">Registros</th>
+                <th class="right">Total (S/.)</th>
+                <th class="bar-col">Proporción</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr v-for="(row, i) in expensesByType" :key="row.description">
+                <td class="rank">{{ i + 1 }}</td>
+                <td>{{ row.description }}</td>
+                <td class="right mono">{{ row.count }}</td>
+                <td class="right mono amount-highlight">{{ fmt(row.total) }}</td>
+                <td class="bar-col">
+                  <div class="bar-track">
+                    <div class="bar-fill expense" :style="{ width: (row.total / maxExpenseTotal * 100).toFixed(1) + '%' }" />
+                  </div>
+                </td>
+              </tr>
+            </tbody>
+          </table>
         </div>
       </div>
 
@@ -683,8 +940,13 @@ onMounted(async () => {
         <!-- Clientes sin compras recientes -->
         <div class="card">
           <div class="inactive-header">
-            <h2>Clientes sin compras recientes</h2>
-            <span class="section-hint">Mayor tiempo sin comprar → mayor prioridad</span>
+            <div>
+              <h2>Clientes sin compras recientes</h2>
+              <span class="section-hint">Mayor tiempo sin comprar → mayor prioridad</span>
+            </div>
+            <button class="btn-export" @click="exportInactiveClients" title="Exportar Excel">
+              ⬇ Excel
+            </button>
           </div>
           <div class="table-scroll">
             <table>
@@ -707,8 +969,8 @@ onMounted(async () => {
                     <span class="client-name">{{ row.customer_name }}</span>
                     <span class="client-ruc mono">{{ row.customer_number }}</span>
                   </td>
-                  <td class="type-cell">{{ customerMap[row.customer_id]?.person_type || '—' }}</td>
-                  <td class="mono">{{ customerMap[row.customer_id]?.telephone || '—' }}</td>
+                  <td class="type-cell">{{ row.person_type }}</td>
+                  <td class="mono">{{ row.telephone }}</td>
                   <td class="right mono">{{ row.last_purchase }}</td>
                   <td class="right">
                     <span class="days-badge" :class="row.days_inactive >= 30 ? 'danger' : row.days_inactive >= 14 ? 'warn' : 'ok'">
@@ -741,6 +1003,9 @@ onMounted(async () => {
                 <button :class="{ active: churnedSortKey === 'total' }" @click="churnedSortKey = 'total'">Por importe</button>
                 <button :class="{ active: churnedSortKey === 'count' }" @click="churnedSortKey = 'count'">Por cantidad</button>
               </div>
+              <button class="btn-export" @click="exportChurnedClients" title="Exportar Excel">
+                ⬇ Excel
+              </button>
             </div>
           </div>
           <div v-if="churnedHighValue.length === 0" class="empty-hint">
@@ -766,8 +1031,8 @@ onMounted(async () => {
                     <span class="client-name">{{ row.customer_name }}</span>
                     <span class="client-ruc mono">{{ row.customer_number }}</span>
                   </td>
-                  <td class="type-cell">{{ customerMap[row.customer_id]?.person_type || '—' }}</td>
-                  <td class="mono">{{ customerMap[row.customer_id]?.telephone || '—' }}</td>
+                  <td class="type-cell">{{ row.person_type }}</td>
+                  <td class="mono">{{ row.telephone }}</td>
                   <td class="right">
                     <span class="days-badge danger">{{ row.days_inactive }}d</span>
                   </td>
@@ -1051,6 +1316,22 @@ input[type='date']:focus { border-color: #3b82f6; background: #fff; }
 .btn-primary:hover:not(:disabled) { background: #1d4ed8; }
 .btn-primary:disabled { opacity: 0.6; cursor: not-allowed; }
 
+.btn-force-reload {
+  padding: 0.5rem 1rem;
+  background: #fff;
+  color: #64748b;
+  border: 1px solid #e2e8f0;
+  border-radius: 6px;
+  font-size: 0.85rem;
+  font-weight: 600;
+  cursor: pointer;
+  height: 36px;
+  transition: all 0.15s;
+  white-space: nowrap;
+}
+.btn-force-reload:hover:not(:disabled) { border-color: #dc2626; color: #dc2626; }
+.btn-force-reload:disabled { opacity: 0.5; cursor: not-allowed; }
+
 .period-select {
   padding: 0.45rem 0.75rem;
   border: 1px solid #cbd5e1;
@@ -1216,7 +1497,7 @@ input[type='date']:focus { border-color: #3b82f6; background: #fff; }
 
 .multiselect-clear:hover { text-decoration: underline; }
 
-.btn-refresh {
+/* .btn-refresh {
   padding: 0.3rem 0.85rem;
   border: 1px solid #e2e8f0;
   border-radius: 6px;
@@ -1230,7 +1511,7 @@ input[type='date']:focus { border-color: #3b82f6; background: #fff; }
 }
 
 .btn-refresh:hover:not(:disabled) { border-color: #2563eb; color: #2563eb; }
-.btn-refresh:disabled { opacity: 0.6; cursor: not-allowed; }
+.btn-refresh:disabled { opacity: 0.6; cursor: not-allowed; } */
 
 .error {
   margin: 1rem 1.5rem 0;
@@ -1262,6 +1543,46 @@ input[type='date']:focus { border-color: #3b82f6; background: #fff; }
 
 .progress-pct { color: #2563eb; font-weight: 700; }
 
+.customer-progress {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.4rem;
+  width: 240px;
+}
+
+.customer-progress-bar {
+  width: 100%;
+  height: 6px;
+  background: #e2e8f0;
+  border-radius: 999px;
+  overflow: hidden;
+}
+
+.customer-progress-fill {
+  height: 100%;
+  background: #2563eb;
+  border-radius: 999px;
+  transition: width 0.3s ease;
+}
+
+.customer-progress-label {
+  font-size: 0.75rem;
+  color: #64748b;
+}
+
+.progress-rows { display: flex; flex-direction: column; gap: 0.3rem; font-size: 0.85rem; }
+.progress-rows p { margin: 0; display: flex; align-items: center; gap: 0.4rem; }
+
+.progress-tag {
+  font-size: 0.7rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  color: #94a3b8;
+  width: 3.5rem;
+  flex-shrink: 0;
+}
+
 .phase-badge {
   display: inline-block;
   padding: 0.1rem 0.4rem;
@@ -1274,8 +1595,43 @@ input[type='date']:focus { border-color: #3b82f6; background: #fff; }
 .phase-badge.cache { background: #dcfce7; color: #16a34a; }
 .phase-badge.proxy { background: #ede9fe; color: #7c3aed; }
 
-.sync-panel {
-  padding: 0.75rem 1.5rem;
+.cache-btn-wrap {
+  position: relative;
+  display: inline-block;
+  margin-top: 0.75rem;
+}
+
+.btn-cache-toggle {
+  padding: 0.3rem 0.7rem;
+  background: #f8fafc;
+  border: 1px solid #e2e8f0;
+  border-radius: 6px;
+  font-size: 0.78rem;
+  font-weight: 600;
+  color: #64748b;
+  cursor: pointer;
+  transition: all 0.15s;
+}
+.btn-cache-toggle:hover,
+.btn-cache-toggle.active { background: #1e293b; color: #f8fafc; border-color: #1e293b; }
+
+.cache-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 199;
+}
+
+.cache-popover {
+  position: absolute;
+  top: calc(100% + 6px);
+  left: 0;
+  background: #fff;
+  border: 1px solid #e2e8f0;
+  border-radius: 10px;
+  box-shadow: 0 8px 24px rgba(0,0,0,0.12);
+  padding: 0.9rem 1.1rem;
+  z-index: 200;
+  min-width: 280px;
 }
 
 .sync-header {
@@ -1422,8 +1778,27 @@ td { padding: 0.3rem 0.6rem; color: #334155; }
 .bar-col { width: 100px; padding-left: 0.5rem; }
 .bar-track { background: #f1f5f9; border-radius: 999px; height: 8px; overflow: hidden; }
 .bar-fill { height: 100%; border-radius: 999px; transition: width 0.4s ease; }
-.bar-fill.purple { background: #7c3aed; }
-.bar-fill.blue   { background: #2563eb; }
+.bar-fill.purple  { background: #7c3aed; }
+.bar-fill.blue    { background: #2563eb; }
+.bar-fill.expense { background: #dc2626; }
+
+.expense-val { color: #dc2626; }
+.profit-pos  { color: #16a34a; font-weight: 800; }
+.profit-neg  { color: #dc2626; font-weight: 800; }
+
+.btn-export {
+  padding: 0.3rem 0.7rem;
+  background: #f0fdf4;
+  border: 1px solid #86efac;
+  border-radius: 6px;
+  color: #16a34a;
+  font-size: 0.78rem;
+  font-weight: 600;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: all 0.15s;
+}
+.btn-export:hover { background: #16a34a; color: #fff; border-color: #16a34a; }
 
 .cxp-controls {
   display: flex;

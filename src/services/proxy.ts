@@ -89,12 +89,6 @@ export interface CustomerCacheEntry {
   department: string | null
 }
 
-export interface CustomerCache {
-  data: Record<string, CustomerCacheEntry>
-  total: number
-  last_updated: string | null
-}
-
 export interface LoadProgress {
   loaded: number
   total: number
@@ -106,14 +100,77 @@ export async function fetchPersonTypes(): Promise<PersonType[]> {
   return res.data.data
 }
 
-export async function fetchCustomerCache(): Promise<CustomerCache> {
-  const res = await proxy.get<CustomerCache>('/customers-cache')
-  return res.data
+interface CustomerRaw {
+  id: number
+  person_type_id: number | null
+  person_type: string
+  telephone: string | null
+  address: string | null
+  birthday: string | null
+  email: string | null
+  state: string | null
+  district: { description: string } | null
+  province: { description: string } | null
+  department: { description: string } | null
 }
 
-export async function refreshCustomerCache(): Promise<CustomerCache> {
-  const res = await proxy.post<CustomerCache>('/customers-cache/refresh')
-  return res.data
+function normalizeCustomer(c: CustomerRaw): CustomerCacheEntry {
+  return {
+    person_type_id: c.person_type_id,
+    person_type: c.person_type || '',
+    telephone: c.telephone || null,
+    address: c.address || null,
+    birthday: c.birthday || null,
+    email: c.email || null,
+    state: c.state || null,
+    district: c.district?.description || null,
+    province: c.province?.description || null,
+    department: c.department?.description || null,
+  }
+}
+
+export async function fetchAllCustomers(
+  onProgress?: (loaded: number, total: number) => void,
+): Promise<Record<string, CustomerCacheEntry>> {
+  const first = await proxy.get<{ data: CustomerRaw[]; meta: { last_page: number } }>(
+    '/proxy/persons/customers/records', { params: { page: 1 } },
+  )
+  const last_page: number = first.data.meta.last_page
+  const allCustomers: CustomerRaw[] = [...first.data.data]
+  let loaded = 1
+  onProgress?.(loaded, last_page)
+
+  for (let page = 2; page <= last_page; page += BATCH_SIZE) {
+    const batch = Array.from(
+      { length: Math.min(BATCH_SIZE, last_page - page + 1) },
+      (_, i) => withRetry(() =>
+        proxy.get<{ data: CustomerRaw[] }>('/proxy/persons/customers/records', { params: { page: page + i } })
+          .then((r) => r.data.data),
+      ),
+    )
+    const results = await Promise.all(batch)
+    results.forEach((recs) => allCustomers.push(...recs))
+    loaded += results.length
+    onProgress?.(loaded, last_page)
+  }
+
+  const map: Record<string, CustomerCacheEntry> = {}
+  for (const c of allCustomers) map[c.id] = normalizeCustomer(c)
+  return map
+}
+
+// ── Utilidad: retry con backoff exponencial ───────────────────────────────────
+
+async function withRetry<T>(fn: () => Promise<T>, maxRetries = 2): Promise<T> {
+  for (let attempt = 0; attempt <= maxRetries; attempt++) {
+    try {
+      return await fn()
+    } catch (e) {
+      if (attempt === maxRetries) throw e
+      await new Promise((r) => setTimeout(r, 800 * Math.pow(2, attempt)))
+    }
+  }
+  throw new Error('unreachable')
 }
 
 // ── Utilidad: fetch paginado con concurrencia limitada ────────────────────────
@@ -137,7 +194,7 @@ async function fetchAllPages<T>(
   for (let page = 2; page <= last_page; page += BATCH_SIZE) {
     const batch = Array.from(
       { length: Math.min(BATCH_SIZE, last_page - page + 1) },
-      (_, i) => fetchPage(page + i),
+      (_, i) => withRetry(() => fetchPage(page + i)),
     )
     const responses = await Promise.all(batch)
     loaded += responses.length
@@ -219,6 +276,57 @@ async function fetchSaleNotesPage(filter: SalesFilter, page: number): Promise<Sa
     params: buildParams(filter, page, false),
   })
   return res.data
+}
+
+// ── Gastos ────────────────────────────────────────────────────────────────────
+
+export interface ExpenseRecord {
+  id: number
+  date_of_issue: string
+  number: string
+  supplier_name: string
+  supplier_number: string
+  currency_type_id: string
+  total: number
+  expense_type_description: string
+  expense_reason_description: string
+  state_type_id: string
+  state_type_description: string
+  external_id: string
+}
+
+type ExpensesResponse = PagedResponse<ExpenseRecord>
+
+function buildExpenseParams(filter: SalesFilter, page: number) {
+  return {
+    period: filter.period,
+    date_start: filter.dateStart,
+    date_end: filter.dateEnd,
+    month_start: filter.monthStart,
+    month_end: filter.monthEnd,
+    document_type_id: '',
+    establishment_id: '',
+    person_id: '',
+    include_categories: false,
+    page,
+  }
+}
+
+async function fetchExpensesPage(filter: SalesFilter, page: number): Promise<ExpensesResponse> {
+  const res = await proxy.get<ExpensesResponse>('/proxy/expenses/records', {
+    params: buildExpenseParams(filter, page),
+  })
+  return res.data
+}
+
+export async function fetchAllExpenses(
+  filter: SalesFilter,
+  onProgress?: (p: LoadProgress) => void,
+): Promise<ExpenseRecord[]> {
+  return fetchAllPages(
+    (p) => fetchExpensesPage(filter, p),
+    onProgress ? (prog) => onProgress({ ...prog, label: `Gastos pág ${prog.loaded}/${prog.total}` }) : undefined,
+  )
 }
 
 // ── Fetch unificado con progreso ──────────────────────────────────────────────
