@@ -14,7 +14,11 @@
         </RouterLink> -->
         <RouterLink to="/" class="nav-link">
           <span class="source-badge proxy">Proxy</span>
-          Documentos
+          Análisis
+        </RouterLink>
+        <RouterLink to="/clientes" class="nav-link">
+          <span class="source-badge rfm">RFM</span>
+          Clientes
         </RouterLink>
       </nav>
     </header>
@@ -111,6 +115,11 @@ body {
 
 .source-badge.proxy {
   background: #7c3aed;
+  color: #fff;
+}
+
+.source-badge.rfm {
+  background: #d97706;
   color: #fff;
 }
 </style>
