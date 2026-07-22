@@ -16,6 +16,7 @@ import {
   type AnalyticsProgress, type MonthStatus,
 } from '../services/analytics'
 import { clearMonth, clearExpenseMonth, clearAllCache, getCustomerCacheFromDB, saveCustomerCacheToDB } from '../services/cache'
+import DrilldownModal, { type DrilldownDoc } from '../components/DrilldownModal.vue'
 
 ChartJS.register(ArcElement, Tooltip, Legend, BarElement, CategoryScale, LinearScale, ChartDataLabels)
 
@@ -321,6 +322,73 @@ const donutOptions = {
 
 function fmt(n: number) {
   return n.toLocaleString('es-PE', { minimumFractionDigits: 2 })
+}
+
+// ── Drill-down de documentos ──────────────────────────────────────────────────
+
+const drilldownOpen = ref(false)
+const drilldownTitle = ref('')
+const drilldownDocs = ref<DrilldownDoc[]>([])
+
+function saleToDoc(r: SaleRecord): DrilldownDoc {
+  return {
+    key: `sale-${r.source ?? 'document'}-${r.id}`,
+    date: r.date_of_issue,
+    typeLabel: r.document_type_description,
+    party: r.customer_name,
+    partyNumber: r.customer_number,
+    total: Number(r.total),
+    kind: 'sale',
+    raw: r,
+  }
+}
+
+function expenseToDoc(e: ExpenseRecord): DrilldownDoc {
+  return {
+    key: `expense-${e.id}`,
+    date: e.date_of_issue,
+    typeLabel: 'Gasto',
+    party: e.supplier_name || '—',
+    partyNumber: e.supplier_number || '—',
+    total: Number(e.total),
+    kind: 'expense',
+    raw: e,
+  }
+}
+
+function sortByDateDesc(docs: DrilldownDoc[]) {
+  return [...docs].sort((a, b) => b.date.localeCompare(a.date))
+}
+
+function openProductDrilldown(product: ProductRow) {
+  const docs = activeRecords.value
+    .filter((r) => r.items?.some((item) => item.internal_id === product.internal_id))
+    .map(saleToDoc)
+  drilldownTitle.value = `Documentos — ${product.description}`
+  drilldownDocs.value = sortByDateDesc(docs)
+  drilldownOpen.value = true
+}
+
+function openClientDrilldown(row: { customer_number: string; customer_name: string }) {
+  const docs = activeRecords.value
+    .filter((r) => r.customer_number === row.customer_number)
+    .map(saleToDoc)
+  drilldownTitle.value = `Documentos — ${row.customer_name}`
+  drilldownDocs.value = sortByDateDesc(docs)
+  drilldownOpen.value = true
+}
+
+function openExpenseTypeDrilldown(row: ExpenseTypeRow) {
+  const docs = expenses.value
+    .filter((e) => (e.expense_type_description || 'Sin tipo') === row.description)
+    .map(expenseToDoc)
+  drilldownTitle.value = `Gastos — ${row.description}`
+  drilldownDocs.value = sortByDateDesc(docs)
+  drilldownOpen.value = true
+}
+
+function closeDrilldown() {
+  drilldownOpen.value = false
 }
 
 // ── Gastos ────────────────────────────────────────────────────────────────────
@@ -832,7 +900,7 @@ onMounted(async () => {
                 </tr>
               </thead>
               <tbody>
-                <tr v-for="(row, i) in topClientsGeneral" :key="row.customer_number">
+                <tr v-for="(row, i) in topClientsGeneral" :key="row.customer_number" class="clickable-row" @click="openClientDrilldown(row)">
                   <td class="rank">{{ i + 1 }}</td>
                   <td class="client-cell">
                     <span class="client-name">{{ row.customer_name }}</span>
@@ -890,7 +958,7 @@ onMounted(async () => {
                 </tr>
               </thead>
               <tbody>
-                <tr v-for="(p, i) in topProducts" :key="p.internal_id">
+                <tr v-for="(p, i) in topProducts" :key="p.internal_id" class="clickable-row" @click="openProductDrilldown(p)">
                   <td class="rank">{{ i + 1 }}</td>
                   <td class="mono code">{{ p.internal_id }}</td>
                   <td class="desc">{{ p.description }}</td>
@@ -958,7 +1026,7 @@ onMounted(async () => {
               </tr>
             </thead>
             <tbody>
-              <tr v-for="(row, i) in expensesByType" :key="row.description">
+              <tr v-for="(row, i) in expensesByType" :key="row.description" class="clickable-row" @click="openExpenseTypeDrilldown(row)">
                 <td class="rank">{{ i + 1 }}</td>
                 <td>{{ row.description }}</td>
                 <td class="right mono">{{ row.count }}</td>
@@ -1088,6 +1156,13 @@ onMounted(async () => {
     <div v-else-if="!loading" class="card empty">
       No hay datos para el rango seleccionado.
     </div>
+
+    <DrilldownModal
+      :open="drilldownOpen"
+      :title="drilldownTitle"
+      :docs="drilldownDocs"
+      @close="closeDrilldown"
+    />
   </div>
 </template>
 
@@ -1805,6 +1880,8 @@ th {
 
 tbody tr { border-bottom: 1px solid #f1f5f9; transition: background 0.1s; }
 tbody tr:hover { background: #f8fafc; }
+tbody tr.clickable-row { cursor: pointer; }
+tbody tr.clickable-row:hover { background: #eff6ff; }
 
 td { padding: 0.3rem 0.6rem; color: #334155; }
 
