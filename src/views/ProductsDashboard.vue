@@ -6,6 +6,7 @@ import {
   Chart as ChartJS, ArcElement, Tooltip, Legend,
   BarElement, CategoryScale, LinearScale,
 } from 'chart.js'
+import ChartDataLabels from 'chartjs-plugin-datalabels'
 import {
   fetchAllCustomers, fetchPersonTypes,
   type SaleRecord, type ExpenseRecord, type Period, type PersonType, type CustomerCacheEntry,
@@ -16,7 +17,7 @@ import {
 } from '../services/analytics'
 import { clearMonth, clearExpenseMonth, clearAllCache, getCustomerCacheFromDB, saveCustomerCacheToDB } from '../services/cache'
 
-ChartJS.register(ArcElement, Tooltip, Legend, BarElement, CategoryScale, LinearScale)
+ChartJS.register(ArcElement, Tooltip, Legend, BarElement, CategoryScale, LinearScale, ChartDataLabels)
 
 const today = new Date().toISOString().slice(0, 10)
 const thisMonth = today.slice(0, 7)
@@ -243,6 +244,7 @@ const clientTypeDonutOptions = computed(() => ({
         },
       },
     },
+    datalabels: { display: false },
   },
 }))
 
@@ -285,6 +287,19 @@ const donutOptions = {
           const pct = total > 0 ? ((val / total) * 100).toFixed(1) : '0.0'
           return ` S/. ${val.toLocaleString('es-PE', { minimumFractionDigits: 2 })} (${pct}%)`
         },
+      },
+    },
+    datalabels: {
+      color: '#fff',
+      font: { size: 11, weight: 'bold' as const },
+      textStrokeColor: 'rgba(0,0,0,0.35)',
+      textStrokeWidth: 2,
+      formatter: (value: number) => {
+        const data = donutData.value.datasets[0]?.data ?? []
+        const total = data.reduce((a, b) => a + b, 0)
+        const pct = total > 0 ? (value / total) * 100 : 0
+        if (pct < 3) return '' // evita amontonar etiquetas en porciones muy chicas
+        return [`S/. ${value.toLocaleString('es-PE', { minimumFractionDigits: 0 })}`, `${pct.toFixed(1)}%`]
       },
     },
   },
@@ -361,6 +376,7 @@ const monthlyBarOptions = {
           ` S/. ${(ctx.parsed.y ?? 0).toLocaleString('es-PE', { minimumFractionDigits: 2 })}`,
       },
     },
+    datalabels: { display: false },
   },
   scales: {
     x: { grid: { display: false }, ticks: { font: { size: 11 }, color: '#64748b' } },
