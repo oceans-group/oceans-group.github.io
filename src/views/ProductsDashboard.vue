@@ -244,7 +244,21 @@ const clientTypeDonutOptions = computed(() => ({
         },
       },
     },
-    datalabels: { display: false },
+    datalabels: {
+      color: '#fff',
+      font: { size: 11, weight: 'bold' as const },
+      textStrokeColor: 'rgba(0,0,0,0.35)',
+      textStrokeWidth: 2,
+      formatter: (value: number) => {
+        const vals = clientTypeDonutData.value.datasets[0]?.data ?? []
+        const total = vals.reduce((a, b) => a + b, 0)
+        const pct = total > 0 ? (value / total) * 100 : 0
+        if (pct < 3) return '' // evita amontonar etiquetas en porciones muy chicas
+        if (clientTypeSortMode.value === 'total')
+          return [`S/. ${value.toLocaleString('es-PE', { minimumFractionDigits: 0 })}`, `${pct.toFixed(1)}%`]
+        return [`${value} docs`, `${pct.toFixed(1)}%`]
+      },
+    },
   },
 }))
 
@@ -376,7 +390,16 @@ const monthlyBarOptions = {
           ` S/. ${(ctx.parsed.y ?? 0).toLocaleString('es-PE', { minimumFractionDigits: 2 })}`,
       },
     },
-    datalabels: { display: false },
+    datalabels: {
+      anchor: 'end' as const,
+      align: 'end' as const,
+      color: (ctx: { datasetIndex: number }) => ['#2563eb', '#dc2626'][ctx.datasetIndex] ?? '#64748b',
+      font: { size: 9, weight: 'bold' as const },
+      formatter: (value: number) => {
+        if (!value) return '' // evita etiquetas en meses sin datos de esa serie
+        return 'S/. ' + value.toLocaleString('es-PE', { minimumFractionDigits: 0 })
+      },
+    },
   },
   scales: {
     x: { grid: { display: false }, ticks: { font: { size: 11 }, color: '#64748b' } },
