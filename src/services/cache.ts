@@ -50,14 +50,14 @@ interface OceansDB extends DBSchema {
 }
 
 const DB_NAME = 'oceans-analytics'
-const DB_VERSION = 3
+const DB_VERSION = 4
 
 let _db: IDBPDatabase<OceansDB> | null = null
 
 async function getDB(): Promise<IDBPDatabase<OceansDB>> {
   if (_db) return _db
   _db = await openDB<OceansDB>(DB_NAME, DB_VERSION, {
-    upgrade(db, oldVersion) {
+    upgrade(db, oldVersion, _newVersion, transaction) {
       if (oldVersion < 1) {
         const store = db.createObjectStore('records', { autoIncrement: true })
         store.createIndex('by_month', '_month')
@@ -70,6 +70,12 @@ async function getDB(): Promise<IDBPDatabase<OceansDB>> {
         const exp = db.createObjectStore('expenses', { autoIncrement: true })
         exp.createIndex('by_month', '_month')
         db.createObjectStore('sync_expenses')
+      }
+      if (oldVersion > 0 && oldVersion < 4) {
+        // Se corrigió el filtrado de documentos anulados/rechazados y notas de venta
+        // sin pago confirmado: se limpia la caché de ventas para forzar un refetch.
+        transaction.objectStore('records').clear()
+        transaction.objectStore('sync_registry').clear()
       }
     },
   })

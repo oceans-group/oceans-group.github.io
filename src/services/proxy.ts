@@ -1,8 +1,26 @@
 import axios from 'axios'
+import { getToken, logout } from './auth'
 
 const proxy = axios.create({
   baseURL: import.meta.env.VITE_PROXY_URL,
 })
+
+proxy.interceptors.request.use((config) => {
+  const token = getToken()
+  if (token) config.headers.Authorization = `Bearer ${token}`
+  return config
+})
+
+proxy.interceptors.response.use(
+  (res) => res,
+  (err) => {
+    if (err.response?.status === 401) {
+      logout()
+      window.location.hash = '#/login'
+    }
+    return Promise.reject(err)
+  },
+)
 
 export interface SaleItem {
   key: number
@@ -56,6 +74,7 @@ interface SaleNoteRaw {
   currency_type_id: string
   items_for_report: SaleNoteItemRaw[]
   payments_methods: string[]
+  total_canceled: boolean
 }
 
 type SaleNotesResponse = PagedResponse<SaleNoteRaw>
@@ -223,14 +242,24 @@ function buildParams(filter: SalesFilter, page: number, products = true) {
 
 // ── Facturas / Boletas ────────────────────────────────────────────────────────
 
+// Estados que no representan una venta real: '09' Rechazado (por SUNAT), '11' Anulado
+const EXCLUDED_DOCUMENT_STATES = ['09', '11']
+
 async function fetchSalesPage(filter: SalesFilter, page: number): Promise<SalesResponse> {
   const res = await proxy.get<SalesResponse>('/proxy/reports/sales/records', {
     params: buildParams(filter, page),
   })
-  return res.data
+  return {
+    ...res.data,
+    data: res.data.data.filter((d) => !EXCLUDED_DOCUMENT_STATES.includes(d.state_type_id)),
+  }
 }
 
 // ── Notas de venta ────────────────────────────────────────────────────────────
+
+// '11' Anulado; total_canceled === false significa que aún no se completó el pago
+// (proforma/reserva registrada como Nota de Venta pero sin confirmar)
+const VOIDED_NOTE_STATE = '11'
 
 function normalizeSaleNote(note: SaleNoteRaw): SaleRecord {
   const docTotal = Number(note.total)
@@ -275,7 +304,10 @@ async function fetchSaleNotesPage(filter: SalesFilter, page: number): Promise<Sa
   const res = await proxy.get<SaleNotesResponse>('/proxy/reports/sale-notes/records', {
     params: buildParams(filter, page, false),
   })
-  return res.data
+  return {
+    ...res.data,
+    data: res.data.data.filter((n) => n.state_type_id !== VOIDED_NOTE_STATE && n.total_canceled),
+  }
 }
 
 // ── Gastos ────────────────────────────────────────────────────────────────────

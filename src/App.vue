@@ -1,8 +1,19 @@
-<script setup lang="ts"></script>
+<script setup lang="ts">
+import { useRoute, useRouter } from 'vue-router'
+import { logout } from './services/auth'
+
+const route = useRoute()
+const router = useRouter()
+
+function handleLogout() {
+  logout()
+  router.replace('/login')
+}
+</script>
 
 <template>
   <div class="app">
-    <header class="header">
+    <header v-if="route.name !== 'login'" class="header">
       <div class="header-brand">
         <span class="header-logo">🌊</span>
         <span class="header-name">Oceans Analytics</span>
@@ -20,6 +31,7 @@
           <span class="source-badge rfm">RFM</span>
           Clientes
         </RouterLink>
+        <button class="logout-btn" @click="handleLogout">Cerrar sesión</button>
       </nav>
     </header>
     <RouterView />
@@ -121,5 +133,23 @@ body {
 .source-badge.rfm {
   background: #d97706;
   color: #fff;
+}
+
+.logout-btn {
+  margin-left: 0.5rem;
+  padding: 0.4rem 0.8rem;
+  border: 1px solid rgba(255,255,255,0.15);
+  border-radius: 6px;
+  background: transparent;
+  color: #94a3b8;
+  font-size: 0.8rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background 0.15s, color 0.15s;
+}
+
+.logout-btn:hover {
+  background: rgba(255,255,255,0.07);
+  color: #f8fafc;
 }
 </style>
