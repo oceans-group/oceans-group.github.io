@@ -47,6 +47,10 @@ function lastDay(monthKey: string) {
 
 function minDate(a: string, b: string) { return a < b ? a : b }
 
+function inRange<T extends { date_of_issue: string }>(rows: T[], start: string, end: string): T[] {
+  return rows.filter((r) => r.date_of_issue >= start && r.date_of_issue <= end)
+}
+
 /**
  * Un mes es COMPLETAMENTE cacheable si su último día está estrictamente antes del cutoff.
  * Un mes puede ser PARCIALMENTE cacheable si su primer día está antes del cutoff.
@@ -168,7 +172,8 @@ export async function loadRecordsForRange(
     }
   }
 
-  return allRecords
+  // Los meses cerrados se descargan/guardan completos: se recorta al rango pedido
+  return inRange(allRecords, startDate, endDate)
 }
 
 // ── Utilidades internas ───────────────────────────────────────────────────────
@@ -258,7 +263,8 @@ export async function loadExpensesForRange(
     }
   }
 
-  return allExpenses
+  // Los meses cerrados se descargan/guardan completos: se recorta al rango pedido
+  return inRange(allExpenses, startDate, endDate)
 }
 
 // ── Compras: carga inteligente con caché ──────────────────────────────────────
@@ -327,5 +333,6 @@ export async function loadPurchasesForRange(
     }
   }
 
-  return allPurchases
+  // Los meses cerrados se descargan/guardan completos: se recorta al rango pedido
+  return inRange(allPurchases, startDate, endDate)
 }
