@@ -16,11 +16,11 @@ Leyenda: `[x]` hecho · `[ ]` pendiente · 👤 depende del cliente
 - [ ] Despliegue — **primero el proxy** (incluye `certs/`), después el frontend
 - [ ] Rotar `FACTURAOFITEC_TOKEN` en facturaofitec y actualizarlo en Render (el anterior estuvo publicado)
 - [ ] Borrar los secrets `VITE_API_BASE_URL` y `VITE_API_TOKEN` de GitHub
-- [ ] Proxy: CORS cerrado por defecto si falta `ALLOWED_ORIGIN`
-- [ ] Proxy: limitar intentos en `/login`
-- [ ] Unificar Node 22 LTS (`.nvmrc`, `engines`, CI y Render)
-- [ ] Actualizar dependencias dentro del rango (`npm update` + `npm audit fix`) en ambos proyectos
-- [ ] Reemplazar `xlsx@0.18.5` (sin parches en npm) por la versión del CDN de SheetJS
+- [x] Proxy: CORS cerrado por defecto si falta `ALLOWED_ORIGIN`
+- [x] Proxy: limitar intentos en `/login` (5 fallos por IP cada 15 min)
+- [x] Unificar Node 22 LTS (`.nvmrc`, `engines`, CI y Render)
+- [x] Actualizar dependencias dentro del rango (`npm update` + `npm audit fix`) en ambos proyectos
+- [x] Reemplazar `xlsx@0.18.5` (sin parches en npm) por la versión del CDN de SheetJS
 
 Riesgo conocido: si Let's Encrypt cambia el intermedio de facturaofitec, el proxy falla con
 `UNABLE_TO_VERIFY_LEAF_SIGNATURE`. Solución de fondo: que facturaofitec sirva la cadena completa.
@@ -77,12 +77,18 @@ Hecho cuando: el margen por producto es razonable y no hay ventas sin costo sin 
 
 Limitación: no hay historial antes de la fecha de corte; facturaofitec solo entrega el stock actual.
 
-## Fase 5 — Mantenimiento
+## Fase 5 — Mantenimiento *(hecha en lo que aporta hoy)*
 
-- [ ] Actualizaciones mayores: pinia 4 (o quitarla: no se usa), TypeScript 7, dotenv 18, oxlint
-- [ ] Unificar la caché de ventas/gastos/compras (hoy duplicada en `analytics.ts` y `cache.ts`)
-- [ ] Proxy en módulos ESM; tests de los cálculos (utilidad, stock)
-- [ ] README real y `<title>` de la app
+- [x] Pinia quitada (no se usaba); oxlint 1.87 y eslint-plugin-vue 10.11; lint en cero
+- [x] Caché unificada: un solo cargador por rango (`loadRangeWithCache`) y una sola caché mensual
+      (`monthlyCache`) para ventas, gastos y compras
+- [x] Tests (Vitest, `npm run test`, también en el CI): reglas de caché, IGV y cálculos de utilidad
+- [x] README de ambos proyectos y `<title>` de la app
+- [x] Dependencias al día dentro de su versión mayor; `xlsx` 0.20.3 desde el CDN de SheetJS
+- [ ] TypeScript 7: esperar a que vue-tsc lo soporte oficialmente (hoy el proyecto usa TS 6)
+- [ ] Proxy en módulos/ESM: un solo archivo de ~250 líneas; conviene cuando crezca (p. ej. al
+      agregar el endpoint de inventario de la fase 4)
+- [ ] 4 vulnerabilidades altas solo de desarrollo (braces vía @vue/eslint-config-typescript), sin arreglo compatible
 
 ---
 
