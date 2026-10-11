@@ -1,26 +1,4 @@
-import axios from 'axios'
-import { getToken, logout } from './auth'
-
-const proxy = axios.create({
-  baseURL: import.meta.env.VITE_PROXY_URL,
-})
-
-proxy.interceptors.request.use((config) => {
-  const token = getToken()
-  if (token) config.headers.Authorization = `Bearer ${token}`
-  return config
-})
-
-proxy.interceptors.response.use(
-  (res) => res,
-  (err) => {
-    if (err.response?.status === 401) {
-      logout()
-      window.location.hash = '#/login'
-    }
-    return Promise.reject(err)
-  },
-)
+import proxy from './api'
 
 export interface SaleItem {
   key: number

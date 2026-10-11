@@ -31,5 +31,5 @@ export interface DocumentsResponse {
 }
 
 export function fetchDocuments(startDate: string, endDate: string): Promise<DocumentsResponse> {
-  return api.get<DocumentsResponse>(`/documents/lists/${startDate}/${endDate}`).then((r) => r.data)
+  return api.get<DocumentsResponse>(`/proxy/api/documents/lists/${startDate}/${endDate}`).then((r) => r.data)
 }
