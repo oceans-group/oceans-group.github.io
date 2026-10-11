@@ -19,16 +19,19 @@ async function handleSubmit() {
     const redirect = (route.query.redirect as string) || '/'
     router.replace(redirect)
   } catch (e: unknown) {
-    if (axiosIsUnauthorized(e)) error.value = 'Usuario o contraseña incorrectos'
+    const status = responseStatus(e)
+    if (status === 401) error.value = 'Usuario o contraseña incorrectos'
+    else if (status === 429) error.value = 'Demasiados intentos fallidos. Espera unos minutos e intenta de nuevo.'
     else error.value = 'No se pudo conectar. Intenta nuevamente.'
   } finally {
     loading.value = false
   }
 }
 
-function axiosIsUnauthorized(e: unknown): boolean {
-  return typeof e === 'object' && e !== null && 'response' in e &&
-    (e as { response?: { status?: number } }).response?.status === 401
+function responseStatus(e: unknown): number | undefined {
+  return typeof e === 'object' && e !== null && 'response' in e
+    ? (e as { response?: { status?: number } }).response?.status
+    : undefined
 }
 </script>
 
