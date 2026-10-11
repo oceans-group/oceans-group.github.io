@@ -9,7 +9,7 @@ import {
   loadRecordsForRange, loadExpensesForRange, loadPurchasesForRange, getMonthsStatus,
   type AnalyticsProgress, type MonthStatus,
 } from '../services/analytics'
-import { clearMonth, clearExpenseMonth, clearPurchaseMonth, clearAllCache, getCustomerCacheFromDB, saveCustomerCacheToDB } from '../services/cache'
+import { monthlyCache, clearAllCache, getCustomerCacheFromDB, saveCustomerCacheToDB } from '../services/cache'
 import type { DrilldownDoc } from '../components/DrilldownModal.vue'
 
 export interface ProductRow {
@@ -51,7 +51,7 @@ export interface InactiveClientRow extends ClientRow {
  * y agregados compartidos por varias secciones. Se crea una vez en la vista y las secciones lo
  * obtienen con useAnalyticsData().
  */
-function createAnalyticsData() {
+export function createAnalyticsData() {
   const today = new Date().toISOString().slice(0, 10)
   const thisMonth = today.slice(0, 7)
 
@@ -85,6 +85,13 @@ function createAnalyticsData() {
   /** Catálogo de productos por código; vacío si no cargó (la utilidad no se puede calcular) */
   const catalog = ref<Record<string, CatalogItem>>({})
   const monthsStatus = ref<MonthStatus[]>([])
+
+  /** Limpia un mes de la caché local en ventas, gastos y compras */
+  async function clearCachedMonth(monthKey: string) {
+    await monthlyCache('sales').clearMonth(monthKey)
+    await monthlyCache('expenses').clearMonth(monthKey)
+    await monthlyCache('purchases').clearMonth(monthKey)
+  }
 
   function baseFilter() {
     return { personTypeIds: [] as number[] }
@@ -132,20 +139,14 @@ function createAnalyticsData() {
 
   async function forceReload() {
     for (const m of monthsStatus.value) {
-      if (m.cached || m.partialCached) {
-        await clearMonth(m.month)
-        await clearExpenseMonth(m.month)
-        await clearPurchaseMonth(m.month)
-      }
+      if (m.cached || m.partialCached) await clearCachedMonth(m.month)
     }
     monthsStatus.value = monthsStatus.value.map((m) => ({ ...m, cached: false, partialCached: false }))
     await load()
   }
 
   async function invalidateMonth(monthKey: string) {
-    await clearMonth(monthKey)
-    await clearExpenseMonth(monthKey)
-    await clearPurchaseMonth(monthKey)
+    await clearCachedMonth(monthKey)
     monthsStatus.value = monthsStatus.value.map((m) =>
       m.month === monthKey ? { ...m, cached: false } : m,
     )

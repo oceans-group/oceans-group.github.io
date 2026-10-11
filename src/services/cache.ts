@@ -105,8 +105,95 @@ async function getDB(): Promise<IDBPDatabase<OceansDB>> {
   return _db
 }
 
-// ── Sync registry ─────────────────────────────────────────────────────────────
+// ── Caché mensual (ventas, gastos, compras) ─────────────────────────────────
 
+/** Tipo de dato guardado por mes y sus dos stores: registros (índice by_month) y registro de sincronización */
+const MONTHLY_STORES = {
+  sales: { data: 'records', sync: 'sync_registry' },
+  expenses: { data: 'expenses', sync: 'sync_expenses' },
+  purchases: { data: 'purchases', sync: 'sync_purchases' },
+} as const
+
+interface MonthlyKinds {
+  sales: SaleRecord
+  expenses: ExpenseRecord
+  purchases: PurchaseRecord
+}
+
+export type MonthlyKind = keyof MonthlyKinds
+
+export interface SaveOptions {
+  partial_end?: string // si se proporciona, es una caché parcial hasta este día
+}
+
+export interface MonthlyCache<T> {
+  /** Mes completamente sincronizado (no parcial) */
+  isFullySynced(monthKey: string): Promise<boolean>
+  /** Mes parcialmente sincronizado: hasta qué fecha cubre (null si no hay caché parcial) */
+  getPartialEnd(monthKey: string): Promise<string | null>
+  getForMonths(monthKeys: string[]): Promise<T[]>
+  /** Reemplaza los registros del mes (y su entrada de sincronización) */
+  saveForMonth(monthKey: string, records: T[], options?: SaveOptions): Promise<void>
+  clearMonth(monthKey: string): Promise<void>
+}
+
+export function monthlyCache<K extends MonthlyKind>(kind: K): MonthlyCache<MonthlyKinds[K]> {
+  const { data, sync } = MONTHLY_STORES[kind]
+  type T = MonthlyKinds[K]
+
+  const getSyncEntry = async (monthKey: string): Promise<SyncEntry | undefined> => (await getDB()).get(sync, monthKey)
+
+  async function deleteMonth(db: IDBPDatabase<OceansDB>, monthKey: string) {
+    const tx = db.transaction([data, sync], 'readwrite')
+    const store = tx.objectStore(data)
+    let cursor = await store.index('by_month').openKeyCursor(IDBKeyRange.only(monthKey))
+    while (cursor) {
+      await store.delete(cursor.primaryKey)
+      cursor = await cursor.continue()
+    }
+    await tx.objectStore(sync).delete(monthKey)
+    await tx.done
+  }
+
+  return {
+    async isFullySynced(monthKey) {
+      const entry = await getSyncEntry(monthKey)
+      return !!entry && !entry.partial_end
+    },
+    async getPartialEnd(monthKey) {
+      return (await getSyncEntry(monthKey))?.partial_end ?? null
+    },
+    async getForMonths(monthKeys) {
+      const db = await getDB()
+      const results: T[] = []
+      // La store de `kind` guarda exactamente T (+ _month); idb devuelve la unión de las tres
+      for (const month of monthKeys) results.push(...(await db.getAllFromIndex(data, 'by_month', month) as unknown as T[]))
+      return results
+    },
+    async saveForMonth(monthKey, records, options = {}) {
+      const db = await getDB()
+      // Borrar registros anteriores de este mes (en caso de reemplazo de parcial)
+      await deleteMonth(db, monthKey)
+      const tx = db.transaction([data, sync], 'readwrite')
+      const store = tx.objectStore(data)
+      // Las tres stores comparten forma: registro + _month (idb no puede tiparlo con la store como unión)
+      for (const r of records) await store.add({ ...r, _month: monthKey } as CachedRecord & CachedExpense & CachedPurchase)
+      const entry: SyncEntry = {
+        key: monthKey,
+        synced_at: new Date().toISOString(),
+        count: records.length,
+        ...(options.partial_end ? { partial_end: options.partial_end } : {}),
+      }
+      await tx.objectStore(sync).put(entry, monthKey)
+      await tx.done
+    },
+    async clearMonth(monthKey) {
+      await deleteMonth(await getDB(), monthKey)
+    },
+  }
+}
+
+/** Entradas de sincronización de ventas por mes (para el panel de caché) */
 export async function getSyncRegistry(): Promise<Record<string, SyncEntry>> {
   const db = await getDB()
   const keys = await db.getAllKeys('sync_registry')
@@ -114,82 +201,6 @@ export async function getSyncRegistry(): Promise<Record<string, SyncEntry>> {
   const result: Record<string, SyncEntry> = {}
   keys.forEach((k, i) => { if (values[i]) result[k] = values[i]! })
   return result
-}
-
-export async function getSyncEntry(monthKey: string): Promise<SyncEntry | undefined> {
-  const db = await getDB()
-  return db.get('sync_registry', monthKey)
-}
-
-/** Mes completamente sincronizado (no parcial) */
-export async function isFullySynced(monthKey: string): Promise<boolean> {
-  const entry = await getSyncEntry(monthKey)
-  return !!entry && !entry.partial_end
-}
-
-/** Mes parcialmente sincronizado — devuelve hasta qué fecha cubre */
-export async function getPartialEnd(monthKey: string): Promise<string | null> {
-  const entry = await getSyncEntry(monthKey)
-  return entry?.partial_end ?? null
-}
-
-// ── Sales records ─────────────────────────────────────────────────────────────
-
-export async function getRecordsForMonths(monthKeys: string[]): Promise<SaleRecord[]> {
-  const db = await getDB()
-  const results: SaleRecord[] = []
-  for (const month of monthKeys) {
-    const recs = await db.getAllFromIndex('records', 'by_month', month)
-    results.push(...recs)
-  }
-  return results
-}
-
-export interface SaveOptions {
-  partial_end?: string // si se proporciona, es una caché parcial hasta este día
-}
-
-export async function saveRecordsForMonth(
-  monthKey: string,
-  records: SaleRecord[],
-  options: SaveOptions = {},
-): Promise<void> {
-  const db = await getDB()
-  // Borrar registros anteriores de este mes (en caso de reemplazo de parcial)
-  const tx1 = db.transaction(['records', 'sync_registry'], 'readwrite')
-  const idx = tx1.objectStore('records').index('by_month')
-  let cursor = await idx.openKeyCursor(IDBKeyRange.only(monthKey))
-  while (cursor) {
-    await tx1.objectStore('records').delete(cursor.primaryKey)
-    cursor = await cursor.continue()
-  }
-  await tx1.objectStore('sync_registry').delete(monthKey)
-  await tx1.done
-
-  // Guardar nuevos registros
-  const tx2 = db.transaction(['records', 'sync_registry'], 'readwrite')
-  for (const r of records) await tx2.objectStore('records').add({ ...r, _month: monthKey })
-  const entry: SyncEntry = {
-    key: monthKey,
-    synced_at: new Date().toISOString(),
-    count: records.length,
-    ...(options.partial_end ? { partial_end: options.partial_end } : {}),
-  }
-  await tx2.objectStore('sync_registry').put(entry, monthKey)
-  await tx2.done
-}
-
-export async function clearMonth(monthKey: string): Promise<void> {
-  const db = await getDB()
-  const tx = db.transaction(['records', 'sync_registry'], 'readwrite')
-  const idx = tx.objectStore('records').index('by_month')
-  let cursor = await idx.openKeyCursor(IDBKeyRange.only(monthKey))
-  while (cursor) {
-    await tx.objectStore('records').delete(cursor.primaryKey)
-    cursor = await cursor.continue()
-  }
-  await tx.objectStore('sync_registry').delete(monthKey)
-  await tx.done
 }
 
 export async function clearAllCache(): Promise<void> {
@@ -202,136 +213,6 @@ export async function clearAllCache(): Promise<void> {
   await tx.objectStore('purchases').clear()
   await tx.objectStore('sync_purchases').clear()
   await tx.objectStore('metadata').clear()
-  await tx.done
-}
-
-// ── Gastos ────────────────────────────────────────────────────────────────────
-
-export async function getExpenseSyncEntry(monthKey: string): Promise<SyncEntry | undefined> {
-  const db = await getDB()
-  return db.get('sync_expenses', monthKey)
-}
-
-export async function isExpenseFullySynced(monthKey: string): Promise<boolean> {
-  const entry = await getExpenseSyncEntry(monthKey)
-  return !!entry && !entry.partial_end
-}
-
-export async function getExpensePartialEnd(monthKey: string): Promise<string | null> {
-  const entry = await getExpenseSyncEntry(monthKey)
-  return entry?.partial_end ?? null
-}
-
-export async function getExpensesForMonths(monthKeys: string[]): Promise<ExpenseRecord[]> {
-  const db = await getDB()
-  const results: ExpenseRecord[] = []
-  for (const month of monthKeys) {
-    const recs = await db.getAllFromIndex('expenses', 'by_month', month)
-    results.push(...recs)
-  }
-  return results
-}
-
-export async function saveExpensesForMonth(
-  monthKey: string,
-  records: ExpenseRecord[],
-  options: SaveOptions = {},
-): Promise<void> {
-  const db = await getDB()
-  const tx1 = db.transaction(['expenses', 'sync_expenses'], 'readwrite')
-  const idx = tx1.objectStore('expenses').index('by_month')
-  let cursor = await idx.openKeyCursor(IDBKeyRange.only(monthKey))
-  while (cursor) {
-    await tx1.objectStore('expenses').delete(cursor.primaryKey)
-    cursor = await cursor.continue()
-  }
-  await tx1.objectStore('sync_expenses').delete(monthKey)
-  await tx1.done
-
-  const tx2 = db.transaction(['expenses', 'sync_expenses'], 'readwrite')
-  for (const r of records) await tx2.objectStore('expenses').add({ ...r, _month: monthKey })
-  await tx2.objectStore('sync_expenses').put(
-    { key: monthKey, synced_at: new Date().toISOString(), count: records.length, ...(options.partial_end ? { partial_end: options.partial_end } : {}) },
-    monthKey,
-  )
-  await tx2.done
-}
-
-export async function clearExpenseMonth(monthKey: string): Promise<void> {
-  const db = await getDB()
-  const tx = db.transaction(['expenses', 'sync_expenses'], 'readwrite')
-  const idx = tx.objectStore('expenses').index('by_month')
-  let cursor = await idx.openKeyCursor(IDBKeyRange.only(monthKey))
-  while (cursor) {
-    await tx.objectStore('expenses').delete(cursor.primaryKey)
-    cursor = await cursor.continue()
-  }
-  await tx.objectStore('sync_expenses').delete(monthKey)
-  await tx.done
-}
-
-// ── Compras ───────────────────────────────────────────────────────────────────
-
-export async function getPurchaseSyncEntry(monthKey: string): Promise<SyncEntry | undefined> {
-  const db = await getDB()
-  return db.get('sync_purchases', monthKey)
-}
-
-export async function isPurchaseFullySynced(monthKey: string): Promise<boolean> {
-  const entry = await getPurchaseSyncEntry(monthKey)
-  return !!entry && !entry.partial_end
-}
-
-export async function getPurchasePartialEnd(monthKey: string): Promise<string | null> {
-  const entry = await getPurchaseSyncEntry(monthKey)
-  return entry?.partial_end ?? null
-}
-
-export async function getPurchasesForMonths(monthKeys: string[]): Promise<PurchaseRecord[]> {
-  const db = await getDB()
-  const results: PurchaseRecord[] = []
-  for (const month of monthKeys) {
-    const recs = await db.getAllFromIndex('purchases', 'by_month', month)
-    results.push(...recs)
-  }
-  return results
-}
-
-export async function savePurchasesForMonth(
-  monthKey: string,
-  records: PurchaseRecord[],
-  options: SaveOptions = {},
-): Promise<void> {
-  const db = await getDB()
-  const tx1 = db.transaction(['purchases', 'sync_purchases'], 'readwrite')
-  const idx = tx1.objectStore('purchases').index('by_month')
-  let cursor = await idx.openKeyCursor(IDBKeyRange.only(monthKey))
-  while (cursor) {
-    await tx1.objectStore('purchases').delete(cursor.primaryKey)
-    cursor = await cursor.continue()
-  }
-  await tx1.objectStore('sync_purchases').delete(monthKey)
-  await tx1.done
-
-  const tx2 = db.transaction(['purchases', 'sync_purchases'], 'readwrite')
-  for (const r of records) await tx2.objectStore('purchases').add({ ...r, _month: monthKey })
-  await tx2.objectStore('sync_purchases').put(
-    { key: monthKey, synced_at: new Date().toISOString(), count: records.length, ...(options.partial_end ? { partial_end: options.partial_end } : {}) },
-    monthKey,
-  )
-  await tx2.done
-}
-
-export async function clearPurchaseMonth(monthKey: string): Promise<void> {
-  const db = await getDB()
-  const tx = db.transaction(['purchases', 'sync_purchases'], 'readwrite')
-  const idx = tx.objectStore('purchases').index('by_month')
-  let cursor = await idx.openKeyCursor(IDBKeyRange.only(monthKey))
-  while (cursor) {
-    await tx.objectStore('purchases').delete(cursor.primaryKey)
-    cursor = await cursor.continue()
-  }
-  await tx.objectStore('sync_purchases').delete(monthKey)
   await tx.done
 }
 
