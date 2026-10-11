@@ -101,9 +101,9 @@ function calcRFM(records: SaleRecord[], periodEnd: string): Map<string, Customer
     return { id: c.id, num, name: c.name, recency, frequency: c.dates.length, monetary: c.total }
   })
 
-  const recencies = [...rawList.map(r => r.recency)].sort((a, b) => a - b)
-  const frequencies = [...rawList.map(r => r.frequency)].sort((a, b) => a - b)
-  const monetaries = [...rawList.map(r => r.monetary)].sort((a, b) => a - b)
+  const recencies = rawList.map(r => r.recency).sort((a, b) => a - b)
+  const frequencies = rawList.map(r => r.frequency).sort((a, b) => a - b)
+  const monetaries = rawList.map(r => r.monetary).sort((a, b) => a - b)
 
   const result = new Map<string, CustomerRFM>()
   for (const row of rawList) {
