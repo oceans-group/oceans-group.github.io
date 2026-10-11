@@ -1,5 +1,5 @@
 import { openDB, type DBSchema, type IDBPDatabase } from 'idb'
-import type { SaleRecord, CustomerCacheEntry, ExpenseRecord } from './proxy'
+import type { SaleRecord, CustomerCacheEntry, ExpenseRecord, PurchaseRecord } from './proxy'
 
 // ── Schema ────────────────────────────────────────────────────────────────────
 
@@ -24,6 +24,10 @@ interface CachedExpense extends ExpenseRecord {
   _month: string
 }
 
+interface CachedPurchase extends PurchaseRecord {
+  _month: string
+}
+
 interface OceansDB extends DBSchema {
   records: {
     key: number
@@ -43,6 +47,15 @@ interface OceansDB extends DBSchema {
     key: string
     value: SyncEntry
   }
+  purchases: {
+    key: number
+    value: CachedPurchase
+    indexes: { by_month: string }
+  }
+  sync_purchases: {
+    key: string
+    value: SyncEntry
+  }
   metadata: {
     key: string
     value: CustomerMeta
@@ -50,7 +63,7 @@ interface OceansDB extends DBSchema {
 }
 
 const DB_NAME = 'oceans-analytics'
-const DB_VERSION = 5
+const DB_VERSION = 6
 
 let _db: IDBPDatabase<OceansDB> | null = null
 
@@ -81,6 +94,11 @@ async function getDB(): Promise<IDBPDatabase<OceansDB>> {
         // Los gastos anulados ya no se guardan: se limpia la caché de gastos para forzar un refetch.
         transaction.objectStore('expenses').clear()
         transaction.objectStore('sync_expenses').clear()
+      }
+      if (oldVersion < 6) {
+        const pur = db.createObjectStore('purchases', { autoIncrement: true })
+        pur.createIndex('by_month', '_month')
+        db.createObjectStore('sync_purchases')
       }
     },
   })
@@ -176,11 +194,13 @@ export async function clearMonth(monthKey: string): Promise<void> {
 
 export async function clearAllCache(): Promise<void> {
   const db = await getDB()
-  const tx = db.transaction(['records', 'sync_registry', 'expenses', 'sync_expenses', 'metadata'], 'readwrite')
+  const tx = db.transaction(['records', 'sync_registry', 'expenses', 'sync_expenses', 'purchases', 'sync_purchases', 'metadata'], 'readwrite')
   await tx.objectStore('records').clear()
   await tx.objectStore('sync_registry').clear()
   await tx.objectStore('expenses').clear()
   await tx.objectStore('sync_expenses').clear()
+  await tx.objectStore('purchases').clear()
+  await tx.objectStore('sync_purchases').clear()
   await tx.objectStore('metadata').clear()
   await tx.done
 }
@@ -247,6 +267,71 @@ export async function clearExpenseMonth(monthKey: string): Promise<void> {
     cursor = await cursor.continue()
   }
   await tx.objectStore('sync_expenses').delete(monthKey)
+  await tx.done
+}
+
+// ── Compras ───────────────────────────────────────────────────────────────────
+
+export async function getPurchaseSyncEntry(monthKey: string): Promise<SyncEntry | undefined> {
+  const db = await getDB()
+  return db.get('sync_purchases', monthKey)
+}
+
+export async function isPurchaseFullySynced(monthKey: string): Promise<boolean> {
+  const entry = await getPurchaseSyncEntry(monthKey)
+  return !!entry && !entry.partial_end
+}
+
+export async function getPurchasePartialEnd(monthKey: string): Promise<string | null> {
+  const entry = await getPurchaseSyncEntry(monthKey)
+  return entry?.partial_end ?? null
+}
+
+export async function getPurchasesForMonths(monthKeys: string[]): Promise<PurchaseRecord[]> {
+  const db = await getDB()
+  const results: PurchaseRecord[] = []
+  for (const month of monthKeys) {
+    const recs = await db.getAllFromIndex('purchases', 'by_month', month)
+    results.push(...recs)
+  }
+  return results
+}
+
+export async function savePurchasesForMonth(
+  monthKey: string,
+  records: PurchaseRecord[],
+  options: SaveOptions = {},
+): Promise<void> {
+  const db = await getDB()
+  const tx1 = db.transaction(['purchases', 'sync_purchases'], 'readwrite')
+  const idx = tx1.objectStore('purchases').index('by_month')
+  let cursor = await idx.openKeyCursor(IDBKeyRange.only(monthKey))
+  while (cursor) {
+    await tx1.objectStore('purchases').delete(cursor.primaryKey)
+    cursor = await cursor.continue()
+  }
+  await tx1.objectStore('sync_purchases').delete(monthKey)
+  await tx1.done
+
+  const tx2 = db.transaction(['purchases', 'sync_purchases'], 'readwrite')
+  for (const r of records) await tx2.objectStore('purchases').add({ ...r, _month: monthKey })
+  await tx2.objectStore('sync_purchases').put(
+    { key: monthKey, synced_at: new Date().toISOString(), count: records.length, ...(options.partial_end ? { partial_end: options.partial_end } : {}) },
+    monthKey,
+  )
+  await tx2.done
+}
+
+export async function clearPurchaseMonth(monthKey: string): Promise<void> {
+  const db = await getDB()
+  const tx = db.transaction(['purchases', 'sync_purchases'], 'readwrite')
+  const idx = tx.objectStore('purchases').index('by_month')
+  let cursor = await idx.openKeyCursor(IDBKeyRange.only(monthKey))
+  while (cursor) {
+    await tx.objectStore('purchases').delete(cursor.primaryKey)
+    cursor = await cursor.continue()
+  }
+  await tx.objectStore('sync_purchases').delete(monthKey)
   await tx.done
 }
 

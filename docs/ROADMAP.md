@@ -12,7 +12,8 @@ Leyenda: `[x]` hecho · `[ ]` pendiente · 👤 depende del cliente
 - [x] Quitar el token de facturaofitec del bundle del frontend (los documentos van por `/proxy/api/...`)
 - [x] Proxy: un 401 de facturaofitec se responde como 502 (no cierra la sesión del usuario)
 - [x] Proxy: verificación TLS activa, con la cadena intermedia en `certs/facturaofitec-chain.pem`
-- [ ] Commit y despliegue — **primero el proxy** (incluye `certs/`), después el frontend
+- [x] Commits en ramas: `fix/seguridad-tls` (proxy) y `feat/analytics-v2` (frontend)
+- [ ] Despliegue — **primero el proxy** (incluye `certs/`), después el frontend
 - [ ] Rotar `FACTURAOFITEC_TOKEN` en facturaofitec y actualizarlo en Render (el anterior estuvo publicado)
 - [ ] Borrar los secrets `VITE_API_BASE_URL` y `VITE_API_TOKEN` de GitHub
 - [ ] Proxy: CORS cerrado por defecto si falta `ALLOWED_ORIGIN`
@@ -24,7 +25,7 @@ Leyenda: `[x]` hecho · `[ ]` pendiente · 👤 depende del cliente
 Riesgo conocido: si Let's Encrypt cambia el intermedio de facturaofitec, el proxy falla con
 `UNABLE_TO_VERIFY_LEAF_SIGNATURE`. Solución de fondo: que facturaofitec sirva la cadena completa.
 
-## Fase 1 — Reestructurar el dashboard *(hecha, sin commit)*
+## Fase 1 — Reestructurar el dashboard *(hecha)*
 
 Objetivo: dejar la base lista para las fases 2–4 sin cambiar lo que ya funciona.
 
@@ -39,13 +40,16 @@ Objetivo: dejar la base lista para las fases 2–4 sin cambiar lo que ya funcion
 Hecho cuando: build y type-check pasan, y las cifras coinciden con la versión anterior
 (salvo los gastos anulados).
 
-## Fase 2 — Compras de mercadería
+## Fase 2 — Compras de mercadería *(hecha)*
 
-- [ ] Servicio de compras: lista por fechas (`/reports/purchases/records`) + detalle con productos
+- [x] Servicio de compras: lista por fechas (`/reports/purchases/records`) + detalle con productos
       (`/purchases/record/{id}`), con caché por mes igual que ventas y gastos
-- [ ] Excluir compras anuladas y el saldo inicial (proveedor "SALDO INICIAL INVENTARIO", si se usa)
-- [ ] KPI "Compras mercadería" y sección Compras por proveedor / por producto (con drill-down)
-- [ ] Flujo de caja = Ventas − Compras − Gastos diversos
+- [x] Excluir compras anuladas y el saldo inicial (proveedor "SALDO INICIAL INVENTARIO", si se usa)
+- [x] KPI "Compras mercadería" y sección Compras por proveedor / por producto (con drill-down)
+- [x] Flujo de caja = Ventas − Compras − Gastos diversos
+- [x] Compras en dólares convertidas con el tipo de cambio de la compra; notas de crédito restan
+
+Pendiente de validar con datos reales: compras en dólares y notas de crédito (aún no hay ninguna).
 
 Hecho cuando: la suma coincide con el reporte de compras de facturaofitec para el mismo rango.
 

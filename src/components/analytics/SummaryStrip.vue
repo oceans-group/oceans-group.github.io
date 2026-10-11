@@ -3,10 +3,10 @@ import { computed } from 'vue'
 import { useAnalyticsData } from '../../composables/useAnalyticsData'
 import { fmt } from '../../utils/format'
 
-const { totalSales, totalExpenses, totalDocs, totalClients } = useAnalyticsData()
+const { totalSales, totalPurchases, totalExpenses, totalDocs, totalClients } = useAnalyticsData()
 
-// Entradas menos salidas de dinero; no descuenta el costo de la mercadería vendida (eso es la utilidad)
-const cashFlow = computed(() => totalSales.value - totalExpenses.value)
+// Entradas menos salidas de dinero; no es la utilidad (esa descuenta el costo de lo vendido, no lo comprado)
+const cashFlow = computed(() => totalSales.value - totalPurchases.value - totalExpenses.value)
 </script>
 
 <template>
@@ -16,12 +16,17 @@ const cashFlow = computed(() => totalSales.value - totalExpenses.value)
       <span class="summary-value">S/. {{ fmt(totalSales) }}</span>
     </span>
     <span class="summary-sep">·</span>
+    <span class="summary-item" title="Sin el saldo inicial de inventario">
+      <span class="summary-label">Compras mercadería</span>
+      <span class="summary-value purchase-val">S/. {{ fmt(totalPurchases) }}</span>
+    </span>
+    <span class="summary-sep">·</span>
     <span class="summary-item">
       <span class="summary-label">Gastos diversos</span>
       <span class="summary-value expense-val">S/. {{ fmt(totalExpenses) }}</span>
     </span>
     <span class="summary-sep">·</span>
-    <span class="summary-item" title="Ventas − Gastos diversos">
+    <span class="summary-item" title="Ventas − Compras mercadería − Gastos diversos">
       <span class="summary-label">Flujo de caja</span>
       <span class="summary-value" :class="cashFlow >= 0 ? 'profit-pos' : 'profit-neg'">
         S/. {{ fmt(cashFlow) }}
@@ -48,6 +53,7 @@ const cashFlow = computed(() => totalSales.value - totalExpenses.value)
   padding-top: 0.75rem;
   margin-top: 0.75rem;
   border-top: 1px solid #f1f5f9;
+  flex-wrap: wrap;
 }
 
 .summary-item {
@@ -77,6 +83,7 @@ const cashFlow = computed(() => totalSales.value - totalExpenses.value)
 
 /* Después de .summary-value para que el color de estas clases prevalezca */
 .expense-val { color: #dc2626; }
+.purchase-val { color: #d97706; }
 .profit-pos  { color: #16a34a; font-weight: 800; }
 .profit-neg  { color: #dc2626; font-weight: 800; }
 </style>

@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { ref, computed, watch } from 'vue'
-import type { SaleRecord, ExpenseRecord } from '../services/proxy'
+import type { SaleRecord, ExpenseRecord, PurchaseRecord } from '../services/proxy'
 
 export interface DrilldownDoc {
   key: string
@@ -9,8 +9,8 @@ export interface DrilldownDoc {
   party: string
   partyNumber: string
   total: number
-  kind: 'sale' | 'expense'
-  raw: SaleRecord | ExpenseRecord
+  kind: 'sale' | 'expense' | 'purchase'
+  raw: SaleRecord | ExpenseRecord | PurchaseRecord
 }
 
 const props = defineProps<{
@@ -34,10 +34,12 @@ const typeColors: Record<string, string> = {
   '03': '#0891b2',
   NV: '#7c3aed',
   gasto: '#dc2626',
+  compra: '#d97706',
 }
 
 function typeColor(doc: DrilldownDoc) {
   if (doc.kind === 'expense') return typeColors.gasto
+  if (doc.kind === 'purchase') return typeColors.compra
   const raw = doc.raw as SaleRecord
   return typeColors[raw.document_type_id] ?? '#64748b'
 }
@@ -135,6 +137,42 @@ function backToList() {
                   <td class="right mono">{{ item.quantity }}</td>
                   <td class="right mono">{{ fmt(Number(item.unit_price)) }}</td>
                   <td class="right mono">{{ fmt(Number(item.total)) }}</td>
+                </tr>
+              </tbody>
+            </table>
+          </template>
+
+          <template v-else-if="selected.kind === 'purchase'">
+            <div class="detail-grid">
+              <div class="detail-field"><span class="label">Tipo</span><span>{{ (selected.raw as PurchaseRecord).document_type_description }}</span></div>
+              <div class="detail-field"><span class="label">N°</span><span class="mono">{{ (selected.raw as PurchaseRecord).number }}</span></div>
+              <div class="detail-field"><span class="label">Fecha</span><span>{{ (selected.raw as PurchaseRecord).date_of_issue }}</span></div>
+              <div class="detail-field"><span class="label">Proveedor</span><span>{{ (selected.raw as PurchaseRecord).supplier_name || '—' }}</span></div>
+              <div class="detail-field"><span class="label">N° Doc. proveedor</span><span class="mono">{{ (selected.raw as PurchaseRecord).supplier_number || '—' }}</span></div>
+              <div class="detail-field"><span class="label">Pago</span><span>{{ (selected.raw as PurchaseRecord).payment_state || '—' }}</span></div>
+              <div class="detail-field"><span class="label">Moneda</span><span>{{ (selected.raw as PurchaseRecord).currency_type_id }}<template v-if="(selected.raw as PurchaseRecord).currency_type_id === 'USD'"> (T.C. {{ (selected.raw as PurchaseRecord).exchange_rate }})</template></span></div>
+              <div class="detail-field"><span class="label">Sin IGV</span><span class="mono">S/. {{ fmt((selected.raw as PurchaseRecord).total_taxed) }}</span></div>
+              <div class="detail-field total-field"><span class="label">Total</span><span class="amount-highlight">S/. {{ fmt((selected.raw as PurchaseRecord).total) }}</span></div>
+            </div>
+
+            <h4 class="items-title">Items</h4>
+            <table>
+              <thead>
+                <tr>
+                  <th>Código</th>
+                  <th>Descripción</th>
+                  <th class="right">Cant.</th>
+                  <th class="right">Costo unit. (sin IGV)</th>
+                  <th class="right">Total</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr v-for="(item, i) in (selected.raw as PurchaseRecord).items" :key="i">
+                  <td class="mono code">{{ item.internal_id }}</td>
+                  <td class="desc">{{ item.description }}</td>
+                  <td class="right mono">{{ item.quantity }}</td>
+                  <td class="right mono">{{ fmt(item.unit_value) }}</td>
+                  <td class="right mono">{{ fmt(item.total) }}</td>
                 </tr>
               </tbody>
             </table>

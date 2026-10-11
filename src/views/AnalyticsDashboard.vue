@@ -11,12 +11,13 @@ import MonthlyBalanceCard from '../components/analytics/MonthlyBalanceCard.vue'
 import TopProductsCard from '../components/analytics/TopProductsCard.vue'
 import ProductMixCard from '../components/analytics/ProductMixCard.vue'
 import ExpensesByTypeCard from '../components/analytics/ExpensesByTypeCard.vue'
+import PurchasesCard from '../components/analytics/PurchasesCard.vue'
 import TopClientsCard from '../components/analytics/TopClientsCard.vue'
 import ClientTypeCard from '../components/analytics/ClientTypeCard.vue'
 import InactiveClientsCard from '../components/analytics/InactiveClientsCard.vue'
 import ChurnedClientsCard from '../components/analytics/ChurnedClientsCard.vue'
 
-const { loading, error, activeRecords, productStats, expenses, drilldown, closeDrilldown, init } = provideAnalyticsData()
+const { loading, error, warnings, activeRecords, productStats, expenses, drilldown, closeDrilldown, init } = provideAnalyticsData()
 
 // ── Pestañas (en la URL para poder compartir el enlace) ─────────────────────
 
@@ -44,6 +45,7 @@ onMounted(init)
     </AnalyticsFilters>
 
     <div v-if="error" class="error">{{ error }}</div>
+    <div v-for="w in warnings" :key="w" class="warning">{{ w }}</div>
 
     <LoadingPanel />
 
@@ -66,6 +68,7 @@ onMounted(init)
           <TopProductsCard />
           <ProductMixCard />
         </div>
+        <PurchasesCard />
         <ExpensesByTypeCard v-if="expenses.length" />
       </template>
 
@@ -95,6 +98,16 @@ onMounted(init)
 </template>
 
 <style scoped>
+.warning {
+  margin: 1rem 1.5rem 0;
+  padding: 0.75rem 1rem;
+  background: #fffbeb;
+  border: 1px solid #fcd34d;
+  border-radius: 8px;
+  color: #b45309;
+  font-size: 0.9rem;
+}
+
 .tabs {
   display: flex;
   gap: 0.25rem;

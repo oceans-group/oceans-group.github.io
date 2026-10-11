@@ -1,7 +1,11 @@
-import { fetchAllSalesRecords, fetchAllExpenses, type SalesFilter, type SaleRecord, type ExpenseRecord, type LoadProgress } from './proxy'
+import {
+  fetchAllSalesRecords, fetchAllExpenses, fetchAllPurchases,
+  type SalesFilter, type SaleRecord, type ExpenseRecord, type PurchaseRecord, type LoadProgress,
+} from './proxy'
 import {
   isFullySynced, getPartialEnd, getRecordsForMonths, saveRecordsForMonth, getSyncRegistry,
   isExpenseFullySynced, getExpensePartialEnd, getExpensesForMonths, saveExpensesForMonth,
+  isPurchaseFullySynced, getPurchasePartialEnd, getPurchasesForMonths, savePurchasesForMonth,
 } from './cache'
 
 // ── Helpers de fechas ─────────────────────────────────────────────────────────
@@ -255,4 +259,73 @@ export async function loadExpensesForRange(
   }
 
   return allExpenses
+}
+
+// ── Compras: carga inteligente con caché ──────────────────────────────────────
+
+export async function loadPurchasesForRange(
+  startDate: string,
+  endDate: string,
+  baseFilter: Omit<SalesFilter, 'period' | 'dateStart' | 'dateEnd' | 'monthStart' | 'monthEnd'>,
+  onProgress?: (p: AnalyticsProgress) => void,
+): Promise<PurchaseRecord[]> {
+  const cutoff = cutoffDate()
+  const lastCacheable = subtractDay(cutoff)
+  const months = monthsBetween(startDate, endDate)
+  const allPurchases: PurchaseRecord[] = []
+  let monthsDone = 0
+  const monthsTotal = months.length
+
+  const report = (label: string, phase: 'cache' | 'proxy') => {
+    monthsDone++
+    onProgress?.({ loaded: monthsDone, total: monthsTotal, label, phase, monthsDone, monthsTotal })
+  }
+
+  for (const month of months) {
+    const fullyCacheable = lastDay(month) < cutoff
+    const straddlesCutoff = !fullyCacheable && firstDay(month) < cutoff
+
+    const fetchPurchaseMonth = async (dateStart: string, dateEnd: string) => {
+      const filter = makeFilter(baseFilter, dateStart, dateEnd, month)
+      return fetchAllPurchases(filter, (p) => {
+        onProgress?.({ ...p, label: `${month} · ${p.label}`, phase: 'proxy', monthsDone, monthsTotal })
+      })
+    }
+
+    if (fullyCacheable) {
+      if (await isPurchaseFullySynced(month)) {
+        allPurchases.push(...await getPurchasesForMonths([month]))
+        report(`Compras ${month} (caché)`, 'cache')
+      } else {
+        const recs = await fetchPurchaseMonth(firstDay(month), lastDay(month))
+        allPurchases.push(...recs)
+        // Un mes vacío no se guarda (cuesta una sola consulta): así aparece una compra
+        // registrada tarde con fecha de ese mes, como el saldo inicial.
+        if (recs.length > 0) await savePurchasesForMonth(month, recs)
+        report(`Compras ${month} guardado`, 'proxy')
+      }
+    } else if (straddlesCutoff) {
+      const cacheEnd = minDate(lastCacheable, endDate)
+      const cachedEnd = await getPurchasePartialEnd(month)
+      if (cachedEnd === cacheEnd) {
+        const cached = (await getPurchasesForMonths([month])).filter(r => r.date_of_issue <= cacheEnd)
+        allPurchases.push(...cached)
+      } else {
+        const pre = await fetchPurchaseMonth(firstDay(month), cacheEnd)
+        allPurchases.push(...pre)
+        if (pre.length > 0) await savePurchasesForMonth(month, pre, { partial_end: cacheEnd })
+      }
+      if (cutoff <= endDate) {
+        const live = await fetchPurchaseMonth(cutoff, minDate(lastDay(month), endDate))
+        allPurchases.push(...live)
+      }
+      report(`Compras ${month} (parcial + vivo)`, 'proxy')
+    } else {
+      const recs = await fetchPurchaseMonth(firstDay(month), minDate(lastDay(month), endDate))
+      allPurchases.push(...recs)
+      report(`Compras ${month} (en vivo)`, 'proxy')
+    }
+  }
+
+  return allPurchases
 }

@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { useAnalyticsData } from '../../composables/useAnalyticsData'
 
-const { loading, loadProgress, loadProgressExp, loadingCustomers, customerProgress } = useAnalyticsData()
+const { loading, loadProgress, loadProgressExp, loadProgressPur, loadingCustomers, customerProgress } = useAnalyticsData()
 </script>
 
 <template>
@@ -39,7 +39,14 @@ const { loading, loadProgress, loadProgressExp, loadingCustomers, customerProgre
         {{ loadProgressExp.label }}
         <span class="progress-pct">· {{ loadProgressExp.monthsDone }}/{{ loadProgressExp.monthsTotal }}</span>
       </p>
-      <p v-if="!loadProgress && !loadProgressExp">Conectando…</p>
+      <p v-if="loadProgressPur">
+        <span class="progress-tag">Compras</span>
+        <span v-if="loadProgressPur.phase === 'cache'" class="phase-badge cache">caché</span>
+        <span v-else class="phase-badge proxy">proxy</span>
+        {{ loadProgressPur.label }}
+        <span class="progress-pct">· {{ loadProgressPur.monthsDone }}/{{ loadProgressPur.monthsTotal }}</span>
+      </p>
+      <p v-if="!loadProgress && !loadProgressExp && !loadProgressPur">Conectando…</p>
     </div>
   </div>
 </template>
@@ -102,7 +109,7 @@ const { loading, loadProgress, loadProgressExp, loadingCustomers, customerProgre
   font-weight: 700;
   text-transform: uppercase;
   color: #94a3b8;
-  width: 3.5rem;
+  width: 4rem;
   flex-shrink: 0;
 }
 

@@ -1,4 +1,4 @@
-import type { SaleRecord, ExpenseRecord } from '../services/proxy'
+import type { SaleRecord, ExpenseRecord, PurchaseRecord } from '../services/proxy'
 import type { DrilldownDoc } from '../components/DrilldownModal.vue'
 
 export function saleToDoc(r: SaleRecord): DrilldownDoc {
@@ -24,5 +24,18 @@ export function expenseToDoc(e: ExpenseRecord): DrilldownDoc {
     total: Number(e.total),
     kind: 'expense',
     raw: e,
+  }
+}
+
+export function purchaseToDoc(p: PurchaseRecord): DrilldownDoc {
+  return {
+    key: `purchase-${p.id}`,
+    date: p.date_of_issue,
+    typeLabel: p.is_opening_balance ? 'Saldo inicial' : 'Compra',
+    party: p.supplier_name || '—',
+    partyNumber: p.supplier_number || '—',
+    total: p.total,
+    kind: 'purchase',
+    raw: p,
   }
 }

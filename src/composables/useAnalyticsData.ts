@@ -1,13 +1,13 @@
 import { ref, computed, provide, inject, type InjectionKey } from 'vue'
 import {
   fetchAllCustomers, fetchPersonTypes,
-  type SaleRecord, type ExpenseRecord, type Period, type PersonType, type CustomerCacheEntry,
+  type SaleRecord, type ExpenseRecord, type PurchaseRecord, type Period, type PersonType, type CustomerCacheEntry,
 } from '../services/proxy'
 import {
-  loadRecordsForRange, loadExpensesForRange, getMonthsStatus,
+  loadRecordsForRange, loadExpensesForRange, loadPurchasesForRange, getMonthsStatus,
   type AnalyticsProgress, type MonthStatus,
 } from '../services/analytics'
-import { clearMonth, clearExpenseMonth, clearAllCache, getCustomerCacheFromDB, saveCustomerCacheToDB } from '../services/cache'
+import { clearMonth, clearExpenseMonth, clearPurchaseMonth, clearAllCache, getCustomerCacheFromDB, saveCustomerCacheToDB } from '../services/cache'
 import type { DrilldownDoc } from '../components/DrilldownModal.vue'
 
 export interface ProductRow {
@@ -56,14 +56,18 @@ function createAnalyticsData() {
     return { start: dateStart.value, end: dateEnd.value }
   }
 
-  // ── Carga de ventas y gastos ────────────────────────────────────────────────
+  // ── Carga de ventas, gastos y compras ───────────────────────────────────────
 
   const records = ref<SaleRecord[]>([])
   const expenses = ref<ExpenseRecord[]>([])
+  const purchases = ref<PurchaseRecord[]>([])
   const loading = ref(false)
   const error = ref<string | null>(null)
+  /** Fallos que no impiden mostrar el resto (p. ej. no cargaron las compras) */
+  const warnings = ref<string[]>([])
   const loadProgress = ref<AnalyticsProgress | null>(null)
   const loadProgressExp = ref<AnalyticsProgress | null>(null)
+  const loadProgressPur = ref<AnalyticsProgress | null>(null)
   const monthsStatus = ref<MonthStatus[]>([])
 
   function baseFilter() {
@@ -74,18 +78,25 @@ function createAnalyticsData() {
     loading.value = true
     loadProgress.value = null
     error.value = null
+    warnings.value = []
     try {
       const { start, end } = effectiveDates()
       monthsStatus.value = await getMonthsStatus(start, end)
-      const [recs, exps] = await Promise.all([
+      const [recs, exps, purs] = await Promise.all([
         loadRecordsForRange(start, end, baseFilter(), (p) => { loadProgress.value = p }),
         loadExpensesForRange(start, end, baseFilter(), (p) => { loadProgressExp.value = p }).catch((e) => {
           console.error('[gastos]', e?.response?.data ?? e?.message ?? e)
           return []
         }),
+        loadPurchasesForRange(start, end, baseFilter(), (p) => { loadProgressPur.value = p }).catch((e) => {
+          console.error('[compras]', e?.response?.data ?? e?.message ?? e)
+          warnings.value.push('No se pudieron cargar las compras: los totales de compras y flujo de caja están incompletos.')
+          return []
+        }),
       ])
       records.value = recs
       expenses.value = exps
+      purchases.value = purs
       monthsStatus.value = await getMonthsStatus(start, end)
     } catch (e) {
       error.value = e instanceof Error ? e.message : 'Error al cargar los datos'
@@ -93,6 +104,7 @@ function createAnalyticsData() {
       loading.value = false
       loadProgress.value = null
       loadProgressExp.value = null
+      loadProgressPur.value = null
     }
   }
 
@@ -101,6 +113,7 @@ function createAnalyticsData() {
       if (m.cached || m.partialCached) {
         await clearMonth(m.month)
         await clearExpenseMonth(m.month)
+        await clearPurchaseMonth(m.month)
       }
     }
     monthsStatus.value = monthsStatus.value.map((m) => ({ ...m, cached: false, partialCached: false }))
@@ -109,6 +122,8 @@ function createAnalyticsData() {
 
   async function invalidateMonth(monthKey: string) {
     await clearMonth(monthKey)
+    await clearExpenseMonth(monthKey)
+    await clearPurchaseMonth(monthKey)
     monthsStatus.value = monthsStatus.value.map((m) =>
       m.month === monthKey ? { ...m, cached: false } : m,
     )
@@ -219,6 +234,12 @@ function createAnalyticsData() {
 
   const totalSales = computed(() => activeRecords.value.reduce((s, r) => s + Number(r.total), 0))
   const totalExpenses = computed(() => expenses.value.reduce((s, e) => s + Number(e.total), 0))
+  /** Compras reales del periodo: sin la compra de saldo inicial de inventario */
+  const periodPurchases = computed(() => purchases.value.filter((p) => !p.is_opening_balance))
+  const totalPurchases = computed(() => periodPurchases.value.reduce((s, p) => s + p.total, 0))
+  const openingBalanceTotal = computed(() =>
+    purchases.value.filter((p) => p.is_opening_balance).reduce((s, p) => s + p.total, 0),
+  )
   const totalDocs = computed(() => activeRecords.value.length)
   const totalClients = computed(() => new Set(activeRecords.value.map((r) => r.customer_number)).size)
 
@@ -288,12 +309,12 @@ function createAnalyticsData() {
 
   return {
     period, dateStart, dateEnd, monthStart, monthEnd,
-    records, expenses, loading, error, loadProgress, loadProgressExp, monthsStatus,
+    records, expenses, purchases, loading, error, warnings, loadProgress, loadProgressExp, loadProgressPur, monthsStatus,
     load, forceReload, invalidateMonth, invalidateAll, init,
     customerMap, cacheLastUpdated, cacheRefreshing, loadingCustomers, customerProgress, personTypes,
     refreshCustomers,
     selectedPersonTypeIds, documentTypeFilter, selectedProductCodes, allProductOptions, activeRecords,
-    totalSales, totalExpenses, totalDocs, totalClients, productStats, clientStats, inactiveClients,
+    totalSales, totalExpenses, periodPurchases, totalPurchases, openingBalanceTotal, totalDocs, totalClients, productStats, clientStats, inactiveClients,
     drilldown, openDrilldown, closeDrilldown,
   }
 }

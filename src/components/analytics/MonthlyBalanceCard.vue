@@ -4,11 +4,12 @@ import { Bar } from 'vue-chartjs'
 import '../../utils/charts'
 import { useAnalyticsData } from '../../composables/useAnalyticsData'
 
-const { activeRecords, expenses } = useAnalyticsData()
+const { activeRecords, expenses, periodPurchases } = useAnalyticsData()
 
 const monthlyBarData = computed(() => {
   const salesMap = new Map<string, number>()
   const expMap = new Map<string, number>()
+  const purMap = new Map<string, number>()
   for (const r of activeRecords.value) {
     const m = r.date_of_issue.slice(0, 7)
     salesMap.set(m, (salesMap.get(m) ?? 0) + Number(r.total))
@@ -17,7 +18,11 @@ const monthlyBarData = computed(() => {
     const m = e.date_of_issue.slice(0, 7)
     expMap.set(m, (expMap.get(m) ?? 0) + Number(e.total))
   }
-  const labels = [...new Set([...salesMap.keys(), ...expMap.keys()])].sort()
+  for (const p of periodPurchases.value) {
+    const m = p.date_of_issue.slice(0, 7)
+    purMap.set(m, (purMap.get(m) ?? 0) + p.total)
+  }
+  const labels = [...new Set([...salesMap.keys(), ...purMap.keys(), ...expMap.keys()])].sort()
   return {
     labels,
     datasets: [
@@ -25,6 +30,13 @@ const monthlyBarData = computed(() => {
         label: 'Ventas (S/.)',
         data: labels.map((l) => salesMap.get(l) ?? 0),
         backgroundColor: '#2563eb',
+        borderRadius: 4,
+        borderSkipped: false,
+      },
+      {
+        label: 'Compras mercadería (S/.)',
+        data: labels.map((l) => purMap.get(l) ?? 0),
+        backgroundColor: '#d97706',
         borderRadius: 4,
         borderSkipped: false,
       },
@@ -54,7 +66,7 @@ const monthlyBarOptions = {
     datalabels: {
       anchor: 'end' as const,
       align: 'end' as const,
-      color: (ctx: { datasetIndex: number }) => ['#2563eb', '#dc2626'][ctx.datasetIndex] ?? '#64748b',
+      color: (ctx: { datasetIndex: number }) => ['#2563eb', '#d97706', '#dc2626'][ctx.datasetIndex] ?? '#64748b',
       font: { size: 9, weight: 'bold' as const },
       formatter: (value: number) => {
         if (!value) return '' // evita etiquetas en meses sin datos de esa serie

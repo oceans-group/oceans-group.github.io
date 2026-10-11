@@ -342,6 +342,152 @@ export async function fetchAllExpenses(
   )
 }
 
+// ── Compras de mercadería ─────────────────────────────────────────────────────
+
+export interface PurchaseItem {
+  item_id: number
+  internal_id: string
+  description: string
+  quantity: number
+  unit_value: number // costo unitario sin IGV, en soles
+  total: number // con IGV, en soles
+  warehouse_id: number | null
+}
+
+export interface PurchaseRecord {
+  id: number
+  date_of_issue: string
+  number: string
+  document_type_id: string
+  document_type_description: string
+  supplier_name: string
+  supplier_number: string
+  currency_type_id: string
+  exchange_rate: number
+  // Montos en soles; negativos en notas de crédito
+  total: number
+  total_taxed: number
+  total_igv: number
+  state_type_id: string
+  state_type_description: string
+  payment_state: string
+  /** Compra usada para cargar el inventario inicial: no es una compra real del periodo */
+  is_opening_balance: boolean
+  items: PurchaseItem[]
+}
+
+interface PurchaseListRaw {
+  id: number
+  date_of_issue: string
+  number: string
+  document_type_description: string
+  supplier_name: string
+  supplier_number: string
+  currency_type_id: string
+  total: string
+  total_taxed: string
+  total_igv: string
+  state_type_id: string
+  state_type_description: string
+  state_type_payment_description: string
+}
+
+interface PurchaseDetailRaw {
+  data: {
+    purchase: {
+      document_type_id: string
+      exchange_rate_sale: string
+      items: {
+        item_id: number
+        quantity: string
+        unit_value: string
+        total: string
+        warehouse_id: number | null
+        item: { internal_id: string | null; description: string }
+      }[]
+    }
+  }
+}
+
+const OPENING_BALANCE_SUPPLIER = /SALDO\s+INICIAL/i
+const CREDIT_NOTE = '07'
+
+function buildPurchaseParams(filter: SalesFilter, page: number) {
+  return {
+    period: filter.period,
+    date_start: filter.dateStart,
+    date_end: filter.dateEnd,
+    month_start: filter.monthStart,
+    month_end: filter.monthEnd,
+    page,
+  }
+}
+
+async function fetchPurchasesPage(filter: SalesFilter, page: number): Promise<PagedResponse<PurchaseListRaw>> {
+  const res = await proxy.get<PagedResponse<PurchaseListRaw>>('/proxy/reports/purchases/records', {
+    params: buildPurchaseParams(filter, page),
+  })
+  return {
+    ...res.data,
+    data: res.data.data.filter((p) => !EXCLUDED_DOCUMENT_STATES.includes(p.state_type_id)),
+  }
+}
+
+/** La lista no trae el código de cada producto: se completa con el detalle de la compra. */
+async function fetchPurchase(row: PurchaseListRaw): Promise<PurchaseRecord> {
+  const res = await proxy.get<PurchaseDetailRaw>(`/proxy/purchases/record/${row.id}`)
+  const detail = res.data.data.purchase
+  const exchangeRate = Number(detail.exchange_rate_sale) || 1
+  const toPen = row.currency_type_id === 'USD' ? exchangeRate : 1
+  const sign = detail.document_type_id === CREDIT_NOTE ? -1 : 1
+  const amount = (v: string | number) => sign * Number(v) * toPen
+
+  return {
+    id: row.id,
+    date_of_issue: row.date_of_issue,
+    number: row.number,
+    document_type_id: detail.document_type_id,
+    document_type_description: row.document_type_description,
+    supplier_name: row.supplier_name,
+    supplier_number: row.supplier_number,
+    currency_type_id: row.currency_type_id,
+    exchange_rate: exchangeRate,
+    total: amount(row.total),
+    total_taxed: amount(row.total_taxed),
+    total_igv: amount(row.total_igv),
+    state_type_id: row.state_type_id,
+    state_type_description: row.state_type_description,
+    payment_state: row.state_type_payment_description,
+    is_opening_balance: OPENING_BALANCE_SUPPLIER.test(row.supplier_name),
+    items: detail.items.map((it) => ({
+      item_id: it.item_id,
+      internal_id: it.item.internal_id ?? String(it.item_id),
+      description: it.item.description,
+      quantity: sign * Number(it.quantity),
+      unit_value: Number(it.unit_value) * toPen,
+      total: amount(it.total),
+      warehouse_id: it.warehouse_id,
+    })),
+  }
+}
+
+export async function fetchAllPurchases(
+  filter: SalesFilter,
+  onProgress?: (p: LoadProgress) => void,
+): Promise<PurchaseRecord[]> {
+  const rows = await fetchAllPages(
+    (p) => fetchPurchasesPage(filter, p),
+    onProgress ? (prog) => onProgress({ ...prog, label: `Compras pág ${prog.loaded}/${prog.total}` }) : undefined,
+  )
+  const result: PurchaseRecord[] = []
+  for (let i = 0; i < rows.length; i += BATCH_SIZE) {
+    const batch = rows.slice(i, i + BATCH_SIZE).map((row) => withRetry(() => fetchPurchase(row)))
+    result.push(...await Promise.all(batch))
+    onProgress?.({ loaded: result.length, total: rows.length, label: `Compras detalle ${result.length}/${rows.length}` })
+  }
+  return result
+}
+
 // ── Fetch unificado con progreso ──────────────────────────────────────────────
 
 export async function fetchAllSalesRecords(
