@@ -1,4 +1,5 @@
 import proxy from './api'
+import { IGV_RATE } from '../utils/igv'
 
 export interface SaleItem {
   key: number
@@ -20,6 +21,8 @@ export interface SaleRecord {
   document_type_description: string
   document_type_id: string
   total: string
+  /** IGV de facturas y boletas (viene en el reporte). Las notas de venta no lo usan: no se declaran. */
+  total_igv?: string
   items: SaleItem[]
   payment_form: string
   user_name: string
@@ -486,6 +489,49 @@ export async function fetchAllPurchases(
     onProgress?.({ loaded: result.length, total: rows.length, label: `Compras detalle ${result.length}/${rows.length}` })
   }
   return result
+}
+
+// ── Catálogo de productos (costos y stock) ────────────────────────────────────
+
+export interface CatalogItem {
+  id: number
+  internal_id: string
+  description: string
+  /** Costo de compra unitario sin IGV, en soles (0 = sin costo cargado) */
+  cost: number
+  stock: number
+  stock_min: number
+}
+
+interface CatalogItemRaw {
+  id: number
+  internal_id: string | null
+  description: string
+  purchase_unit_price: string // "S/ 21.00"
+  purchase_has_igv_description: string // "Si" | "No"
+  purchase_affectation_igv_type_id: string // "10" = gravado
+  stock: string
+  stock_min: string
+}
+
+const parseAmount = (s: string | number) => Number(String(s).replace(/[^0-9.-]/g, '')) || 0
+
+export async function fetchProductCatalog(): Promise<CatalogItem[]> {
+  const fetchPage = async (page: number) =>
+    (await proxy.get<PagedResponse<CatalogItemRaw>>('/proxy/items/records', { params: { column: 'description', value: '', page } })).data
+  const raw = await fetchAllPages(fetchPage)
+  return raw.map((it) => {
+    const price = parseAmount(it.purchase_unit_price)
+    const priceIncludesIgv = it.purchase_has_igv_description === 'Si' && it.purchase_affectation_igv_type_id === '10'
+    return {
+      id: it.id,
+      internal_id: it.internal_id ?? String(it.id),
+      description: it.description,
+      cost: priceIncludesIgv ? price / (1 + IGV_RATE) : price,
+      stock: parseAmount(it.stock),
+      stock_min: parseAmount(it.stock_min),
+    }
+  })
 }
 
 // ── Fetch unificado con progreso ──────────────────────────────────────────────

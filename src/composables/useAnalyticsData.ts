@@ -1,8 +1,10 @@
 import { ref, computed, provide, inject, type InjectionKey } from 'vue'
 import {
-  fetchAllCustomers, fetchPersonTypes,
+  fetchAllCustomers, fetchPersonTypes, fetchProductCatalog,
   type SaleRecord, type ExpenseRecord, type PurchaseRecord, type Period, type PersonType, type CustomerCacheEntry,
+  type CatalogItem,
 } from '../services/proxy'
+import { netFactor } from '../utils/igv'
 import {
   loadRecordsForRange, loadExpensesForRange, loadPurchasesForRange, getMonthsStatus,
   type AnalyticsProgress, type MonthStatus,
@@ -15,6 +17,18 @@ export interface ProductRow {
   description: string
   quantity: number
   total: number
+  /** Venta neta: sin el IGV a pagar (las notas de venta no se declaran y van completas) */
+  net: number
+  /** Costo de lo vendido sin IGV; null si el producto no tiene costo en el catálogo */
+  cost: number | null
+}
+
+export interface CostIssue {
+  internal_id: string
+  description: string
+  issue: 'sin-costo' | 'margen-negativo'
+  net: number
+  cost: number | null
 }
 
 export interface ClientRow {
@@ -68,6 +82,8 @@ function createAnalyticsData() {
   const loadProgress = ref<AnalyticsProgress | null>(null)
   const loadProgressExp = ref<AnalyticsProgress | null>(null)
   const loadProgressPur = ref<AnalyticsProgress | null>(null)
+  /** Catálogo de productos por código; vacío si no cargó (la utilidad no se puede calcular) */
+  const catalog = ref<Record<string, CatalogItem>>({})
   const monthsStatus = ref<MonthStatus[]>([])
 
   function baseFilter() {
@@ -82,7 +98,7 @@ function createAnalyticsData() {
     try {
       const { start, end } = effectiveDates()
       monthsStatus.value = await getMonthsStatus(start, end)
-      const [recs, exps, purs] = await Promise.all([
+      const [recs, exps, purs, items] = await Promise.all([
         loadRecordsForRange(start, end, baseFilter(), (p) => { loadProgress.value = p }),
         loadExpensesForRange(start, end, baseFilter(), (p) => { loadProgressExp.value = p }).catch((e) => {
           console.error('[gastos]', e?.response?.data ?? e?.message ?? e)
@@ -93,7 +109,13 @@ function createAnalyticsData() {
           warnings.value.push('No se pudieron cargar las compras: los totales de compras y flujo de caja están incompletos.')
           return []
         }),
+        fetchProductCatalog().catch((e) => {
+          console.error('[catálogo]', e?.response?.data ?? e?.message ?? e)
+          warnings.value.push('No se pudo cargar el catálogo de productos: no se puede calcular el costo de ventas ni la utilidad.')
+          return []
+        }),
       ])
+      catalog.value = Object.fromEntries(items.map((it) => [it.internal_id, it]))
       records.value = recs
       expenses.value = exps
       purchases.value = purs
@@ -243,20 +265,60 @@ function createAnalyticsData() {
   const totalDocs = computed(() => activeRecords.value.length)
   const totalClients = computed(() => new Set(activeRecords.value.map((r) => r.customer_number)).size)
 
+  const catalogReady = computed(() => Object.keys(catalog.value).length > 0)
+
+  /** Costo unitario sin IGV del producto, o null si no tiene costo cargado */
+  function unitCost(internalId: string): number | null {
+    const cost = catalog.value[internalId]?.cost
+    return cost ? cost : null
+  }
+
+  /** Costo sin IGV de lo vendido en un documento (solo productos con costo) */
+  function recordCost(r: SaleRecord): number {
+    let cost = 0
+    for (const item of r.items ?? []) cost += (unitCost(item.internal_id) ?? 0) * Number(item.quantity)
+    return cost
+  }
+
   /** Ventas por producto (sin ordenar: cada sección ordena según su criterio). */
   const productStats = computed<ProductRow[]>(() => {
     const map = new Map<string, ProductRow>()
     for (const record of activeRecords.value) {
+      const factor = netFactor(record)
       for (const item of record.items ?? []) {
         if (!item.internal_id) continue
         const key = item.internal_id
-        const row = map.get(key) ?? { internal_id: item.internal_id, description: item.description, quantity: 0, total: 0 }
+        const unit = unitCost(key)
+        const row = map.get(key) ?? { internal_id: item.internal_id, description: item.description, quantity: 0, total: 0, net: 0, cost: unit === null ? null : 0 }
         row.quantity += Number(item.quantity)
         row.total += Number(item.total)
+        row.net += Number(item.total) * factor
+        if (row.cost !== null && unit !== null) row.cost += unit * Number(item.quantity)
         map.set(key, row)
       }
     }
     return [...map.values()]
+  })
+
+  // ── Utilidad (sin IGV a pagar; ver utils/igv.ts) ────────────────────────────
+
+  const netSales = computed(() => activeRecords.value.reduce((s, r) => s + Number(r.total) * netFactor(r), 0))
+  const costOfSales = computed(() => productStats.value.reduce((s, p) => s + (p.cost ?? 0), 0))
+  const grossProfit = computed(() => netSales.value - costOfSales.value)
+  const netProfit = computed(() => grossProfit.value - totalExpenses.value)
+  /** Ventas netas de productos sin costo: su costo no se descuenta y la utilidad sale inflada */
+  const uncostedSales = computed(() => productStats.value.reduce((s, p) => s + (p.cost === null ? p.net : 0), 0))
+
+  /** Productos vendidos cuyo costo hay que revisar en el catálogo de facturaofitec */
+  const costIssues = computed<CostIssue[]>(() => {
+    if (!catalogReady.value) return []
+    const issues: CostIssue[] = []
+    for (const p of productStats.value) {
+      if (p.net <= 0) continue
+      if (p.cost === null) issues.push({ internal_id: p.internal_id, description: p.description, issue: 'sin-costo', net: p.net, cost: null })
+      else if (p.cost > p.net) issues.push({ internal_id: p.internal_id, description: p.description, issue: 'margen-negativo', net: p.net, cost: p.cost })
+    }
+    return issues.sort((a, b) => Math.abs((b.cost ?? 0) - b.net) - Math.abs((a.cost ?? 0) - a.net))
   })
 
   /** Ventas por cliente (sin ordenar). */
@@ -309,12 +371,13 @@ function createAnalyticsData() {
 
   return {
     period, dateStart, dateEnd, monthStart, monthEnd,
-    records, expenses, purchases, loading, error, warnings, loadProgress, loadProgressExp, loadProgressPur, monthsStatus,
+    records, expenses, purchases, catalog, catalogReady, loading, error, warnings, loadProgress, loadProgressExp, loadProgressPur, monthsStatus,
     load, forceReload, invalidateMonth, invalidateAll, init,
     customerMap, cacheLastUpdated, cacheRefreshing, loadingCustomers, customerProgress, personTypes,
     refreshCustomers,
     selectedPersonTypeIds, documentTypeFilter, selectedProductCodes, allProductOptions, activeRecords,
-    totalSales, totalExpenses, periodPurchases, totalPurchases, openingBalanceTotal, totalDocs, totalClients, productStats, clientStats, inactiveClients,
+    totalSales, totalExpenses, periodPurchases, totalPurchases, openingBalanceTotal, totalDocs, totalClients,
+    netSales, costOfSales, grossProfit, netProfit, uncostedSales, costIssues, recordCost, productStats, clientStats, inactiveClients,
     drilldown, openDrilldown, closeDrilldown,
   }
 }

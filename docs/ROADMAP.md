@@ -53,14 +53,14 @@ Pendiente de validar con datos reales: compras en dólares y notas de crédito (
 
 Hecho cuando: la suma coincide con el reporte de compras de facturaofitec para el mismo rango.
 
-## Fase 3 — Costo de ventas y utilidad
+## Fase 3 — Costo de ventas y utilidad *(hecha; cifras reales cuando se corrijan los costos)*
 
 - [ ] 👤 El cliente corrige los costos de compra en el catálogo (TAPAS LARGAS, productos en 0)
-- [ ] Catálogo de productos (costo, stock, stock mínimo) con caché
-- [ ] Costo de ventas = Σ cantidad vendida × costo (facturas, boletas y notas de venta)
-- [ ] KPIs Utilidad bruta (margen %) y Utilidad neta; columnas costo y margen en Top productos
-- [ ] Estado de resultados mensual con selector Utilidad / Flujo de caja (reemplaza Balance mensual)
-- [ ] Aviso visible de productos vendidos sin costo cargado
+- [x] Catálogo de productos (costo sin IGV, stock, stock mínimo), se lee en cada carga (2 páginas)
+- [x] Costo de ventas = Σ cantidad vendida × costo (facturas, boletas y notas de venta)
+- [x] KPIs Utilidad bruta (margen %) y Utilidad neta; columnas costo y margen en Top productos
+- [x] Estado de resultados mensual con selector Utilidad / Flujo de caja (reemplaza Balance mensual)
+- [x] Tarjeta "Costos a revisar": productos sin costo y con costo mayor que la venta
 
 Hecho cuando: el margen por producto es razonable y no hay ventas sin costo sin avisar.
 
@@ -93,4 +93,4 @@ Limitación: no hay historial antes de la fecha de corte; facturaofitec solo ent
 | Histórico de compras dentro de gastos | No se reclasifica; se parte del saldo inicial | Acordado |
 | Saldo inicial | Ajuste de inventario en facturaofitec (preferido) o compra con proveedor exclusivo sin IGV | Acordado, falta ejecutar 👤 |
 | Prioridad | Utilidad primero; flujo de caja también | Acordado |
-| IGV | Ventas se muestran con IGV; la utilidad se calcula sin IGV | Propuesto, por confirmar |
+| IGV | Resumen con ventas totales. Utilidad: facturas y boletas sin IGV; **notas de venta completas** (no se declaran, no pagan IGV); costos sin IGV; gastos tal como se registran. Regla en `src/utils/igv.ts` | Acordado |

@@ -7,7 +7,8 @@ import DrilldownModal from '../components/DrilldownModal.vue'
 import AnalyticsFilters from '../components/analytics/AnalyticsFilters.vue'
 import SummaryStrip from '../components/analytics/SummaryStrip.vue'
 import LoadingPanel from '../components/analytics/LoadingPanel.vue'
-import MonthlyBalanceCard from '../components/analytics/MonthlyBalanceCard.vue'
+import IncomeStatementCard from '../components/analytics/IncomeStatementCard.vue'
+import CostIssuesCard from '../components/analytics/CostIssuesCard.vue'
 import TopProductsCard from '../components/analytics/TopProductsCard.vue'
 import ProductMixCard from '../components/analytics/ProductMixCard.vue'
 import ExpensesByTypeCard from '../components/analytics/ExpensesByTypeCard.vue'
@@ -17,7 +18,7 @@ import ClientTypeCard from '../components/analytics/ClientTypeCard.vue'
 import InactiveClientsCard from '../components/analytics/InactiveClientsCard.vue'
 import ChurnedClientsCard from '../components/analytics/ChurnedClientsCard.vue'
 
-const { loading, error, warnings, activeRecords, productStats, expenses, drilldown, closeDrilldown, init } = provideAnalyticsData()
+const { loading, error, warnings, activeRecords, productStats, expenses, costIssues, drilldown, closeDrilldown, init } = provideAnalyticsData()
 
 // ── Pestañas (en la URL para poder compartir el enlace) ─────────────────────
 
@@ -63,12 +64,13 @@ onMounted(init)
       </nav>
 
       <template v-if="activeTab === 'resultados'">
-        <MonthlyBalanceCard />
+        <IncomeStatementCard />
+        <CostIssuesCard v-if="costIssues.length" />
+        <TopProductsCard />
         <div class="grid-2col">
-          <TopProductsCard />
           <ProductMixCard />
+          <PurchasesCard />
         </div>
-        <PurchasesCard />
         <ExpensesByTypeCard v-if="expenses.length" />
       </template>
 

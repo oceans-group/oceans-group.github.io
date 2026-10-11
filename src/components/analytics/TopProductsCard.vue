@@ -4,7 +4,12 @@ import { useAnalyticsData, type ProductRow } from '../../composables/useAnalytic
 import { fmt } from '../../utils/format'
 import { saleToDoc } from '../../utils/drilldown'
 
-const { productStats, activeRecords, openDrilldown } = useAnalyticsData()
+const { productStats, activeRecords, catalogReady, openDrilldown } = useAnalyticsData()
+
+/** Margen bruto sobre la venta neta; null si el producto no tiene costo */
+function margin(p: ProductRow): number | null {
+  return p.cost === null || !p.net ? null : ((p.net - p.cost) / p.net) * 100
+}
 
 type SortKey = 'quantity' | 'total'
 const sortKey = ref<SortKey>('total')
@@ -41,6 +46,8 @@ function openProductDrilldown(product: ProductRow) {
             <th class="bar-col">Cant.</th>
             <th class="right">Importe (S/.)</th>
             <th class="bar-col">Import.</th>
+            <th v-if="catalogReady" class="right" title="Costo de lo vendido, sin IGV">Costo (S/.)</th>
+            <th v-if="catalogReady" class="right" title="(Venta neta − costo) / venta neta">Margen</th>
           </tr>
         </thead>
         <tbody>
@@ -60,9 +67,23 @@ function openProductDrilldown(product: ProductRow) {
                 <div class="bar-fill blue" :style="{ width: (p.total / maxTotal * 100).toFixed(1) + '%' }" />
               </div>
             </td>
+            <template v-if="catalogReady">
+              <td class="right mono">
+                <span v-if="p.cost === null" class="cost-missing" title="Sin costo en el catálogo">sin costo</span>
+                <template v-else>{{ fmt(p.cost) }}</template>
+              </td>
+              <td class="right mono" :class="{ 'margin-neg': (margin(p) ?? 0) < 0 }">
+                {{ margin(p) === null ? '—' : margin(p)!.toFixed(0) + '%' }}
+              </td>
+            </template>
           </tr>
         </tbody>
       </table>
     </div>
   </div>
 </template>
+
+<style scoped>
+.cost-missing { color: #d97706; font-size: 0.7rem; font-weight: 600; }
+.margin-neg { color: #dc2626; font-weight: 700; }
+</style>
