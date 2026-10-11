@@ -326,7 +326,10 @@ async function fetchExpensesPage(filter: SalesFilter, page: number): Promise<Exp
   const res = await proxy.get<ExpensesResponse>('/proxy/expenses/records', {
     params: buildExpenseParams(filter, page),
   })
-  return res.data
+  return {
+    ...res.data,
+    data: res.data.data.filter((e) => !EXCLUDED_DOCUMENT_STATES.includes(e.state_type_id)),
+  }
 }
 
 export async function fetchAllExpenses(

@@ -1,0 +1,220 @@
+/* Estilos compartidos por las secciones del dashboard de análisis (raíz: .analytics) */
+
+.analytics {
+  padding-bottom: 2rem;
+}
+
+.analytics .card {
+  background: #fff;
+  border-radius: 10px;
+  box-shadow: 0 1px 3px rgba(0,0,0,0.08);
+  padding: 1.25rem 1.5rem;
+  margin: 1.25rem 1.5rem 0;
+}
+
+.analytics .grid-2col {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 1.25rem;
+  margin: 1.25rem 1.5rem 0;
+}
+
+.analytics .grid-2col .card {
+  margin: 0;
+  min-width: 0;
+  overflow: hidden;
+}
+
+@media (max-width: 1024px) {
+  .analytics .grid-2col {
+    grid-template-columns: 1fr;
+  }
+}
+
+/* ── Encabezados de sección ─────────────────────────────────────────────── */
+
+.analytics .section-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 0.75rem;
+  margin-bottom: 1rem;
+}
+
+.analytics .section-title {
+  margin: 0 0 1rem;
+  font-size: 0.95rem;
+  font-weight: 700;
+  color: #0f172a;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+.analytics .section-header .section-title { margin-bottom: 0; }
+
+.analytics .section-hint {
+  font-size: 0.78rem;
+  color: #94a3b8;
+  font-style: italic;
+  font-weight: 400;
+}
+
+.analytics .sort-toggle {
+  display: flex;
+  border: 1px solid #e2e8f0;
+  border-radius: 6px;
+  overflow: hidden;
+}
+.analytics .sort-toggle button {
+  padding: 0.3rem 0.85rem;
+  background: #fff;
+  border: none;
+  font-size: 0.8rem;
+  font-weight: 600;
+  color: #64748b;
+  cursor: pointer;
+  transition: background 0.15s, color 0.15s;
+}
+.analytics .sort-toggle button + button { border-left: 1px solid #e2e8f0; }
+.analytics .sort-toggle button.active { background: #2563eb; color: #fff; }
+
+.analytics .btn-export {
+  padding: 0.3rem 0.7rem;
+  background: #f0fdf4;
+  border: 1px solid #86efac;
+  border-radius: 6px;
+  color: #16a34a;
+  font-size: 0.78rem;
+  font-weight: 600;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: all 0.15s;
+}
+.analytics .btn-export:hover { background: #16a34a; color: #fff; border-color: #16a34a; }
+
+/* ── Tablas ─────────────────────────────────────────────────────────────── */
+
+.analytics .table-scroll {
+  overflow-x: auto;
+  overflow-y: auto;
+  max-height: 360px;
+}
+
+.analytics .table-scroll thead th {
+  position: sticky;
+  top: 0;
+  background: #f8fafc;
+  z-index: 1;
+}
+
+.analytics table { width: 100%; border-collapse: collapse; font-size: 0.8rem; }
+
+.analytics thead tr { background: #f8fafc; border-bottom: 1px solid #e2e8f0; }
+
+.analytics th {
+  padding: 0.35rem 0.6rem;
+  font-size: 0.68rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: #64748b;
+  text-align: left;
+  white-space: nowrap;
+}
+
+.analytics tbody tr { border-bottom: 1px solid #f1f5f9; transition: background 0.1s; }
+.analytics tbody tr:hover { background: #f8fafc; }
+.analytics tbody tr.clickable-row { cursor: pointer; }
+.analytics tbody tr.clickable-row:hover { background: #eff6ff; }
+
+.analytics td { padding: 0.3rem 0.6rem; color: #334155; }
+
+.analytics .rank { width: 1.5rem; text-align: center; font-weight: 700; color: #94a3b8; font-size: 0.72rem; }
+.analytics .code { font-family: monospace; font-size: 0.75rem; color: #64748b; }
+.analytics .desc { max-width: 200px; }
+.analytics .right { text-align: right; }
+.analytics .mono { font-family: 'JetBrains Mono', monospace; font-size: 0.76rem; }
+
+.analytics .bar-col { width: 100px; padding-left: 0.5rem; }
+.analytics .bar-track { background: #f1f5f9; border-radius: 999px; height: 8px; overflow: hidden; }
+.analytics .bar-fill { height: 100%; border-radius: 999px; transition: width 0.4s ease; }
+.analytics .bar-fill.purple  { background: #7c3aed; }
+.analytics .bar-fill.blue    { background: #2563eb; }
+.analytics .bar-fill.expense { background: #dc2626; }
+
+.analytics .client-cell {
+  display: flex;
+  flex-direction: column;
+  gap: 0;
+}
+
+.analytics .client-name {
+  font-size: 0.78rem;
+  color: #1e293b;
+  line-height: 1.2;
+}
+
+.analytics .client-ruc {
+  font-size: 0.68rem;
+  color: #94a3b8;
+  line-height: 1.2;
+}
+
+.analytics .type-cell {
+  font-size: 0.74rem;
+  color: #64748b;
+  white-space: nowrap;
+}
+
+.analytics .days-badge {
+  display: inline-block;
+  padding: 0.15rem 0.5rem;
+  border-radius: 999px;
+  font-size: 0.75rem;
+  font-weight: 700;
+  font-family: monospace;
+}
+.analytics .days-badge.ok     { background: #dcfce7; color: #16a34a; }
+.analytics .days-badge.warn   { background: #fef9c3; color: #ca8a04; }
+.analytics .days-badge.danger { background: #fee2e2; color: #dc2626; }
+
+.analytics .amount-highlight { color: #dc2626; font-weight: 700; }
+
+/* ── Gráficos ───────────────────────────────────────────────────────────── */
+
+.analytics .bar-chart-wrap {
+  height: 280px;
+  position: relative;
+}
+
+.analytics .donut-wrap {
+  height: 320px;
+  max-width: 700px;
+  margin: 0 auto;
+}
+
+/* ── Estados ────────────────────────────────────────────────────────────── */
+
+.analytics .empty-hint {
+  padding: 2rem;
+  text-align: center;
+  color: #94a3b8;
+  font-size: 0.9rem;
+}
+
+.analytics .empty {
+  padding: 3rem;
+  text-align: center;
+  color: #94a3b8;
+}
+
+.analytics .error {
+  margin: 1rem 1.5rem 0;
+  padding: 0.75rem 1rem;
+  background: #fef2f2;
+  border: 1px solid #fca5a5;
+  border-radius: 8px;
+  color: #dc2626;
+  font-size: 0.9rem;
+}

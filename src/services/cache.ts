@@ -50,7 +50,7 @@ interface OceansDB extends DBSchema {
 }
 
 const DB_NAME = 'oceans-analytics'
-const DB_VERSION = 4
+const DB_VERSION = 5
 
 let _db: IDBPDatabase<OceansDB> | null = null
 
@@ -76,6 +76,11 @@ async function getDB(): Promise<IDBPDatabase<OceansDB>> {
         // sin pago confirmado: se limpia la caché de ventas para forzar un refetch.
         transaction.objectStore('records').clear()
         transaction.objectStore('sync_registry').clear()
+      }
+      if (oldVersion > 0 && oldVersion < 5) {
+        // Los gastos anulados ya no se guardan: se limpia la caché de gastos para forzar un refetch.
+        transaction.objectStore('expenses').clear()
+        transaction.objectStore('sync_expenses').clear()
       }
     },
   })
