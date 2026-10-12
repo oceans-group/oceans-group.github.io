@@ -26,7 +26,7 @@ export interface ProductRow {
 export interface CostIssue {
   internal_id: string
   description: string
-  issue: 'sin-costo' | 'margen-negativo'
+  issue: 'sin-costo' | 'margen-negativo' | 'margen-inusual'
   net: number
   cost: number | null
 }
@@ -41,6 +41,9 @@ export interface ClientRow {
   total: number
   last_purchase: string
 }
+
+/** Márgenes brutos fuera de este rango se marcan para revisar el costo del producto */
+export const UNUSUAL_MARGIN = { low: 0.05, high: 0.9 }
 
 export interface InactiveClientRow extends ClientRow {
   days_inactive: number
@@ -268,16 +271,22 @@ export function createAnalyticsData() {
 
   const catalogReady = computed(() => Object.keys(catalog.value).length > 0)
 
-  /** Costo unitario sin IGV del producto, o null si no tiene costo cargado */
-  function unitCost(internalId: string): number | null {
-    const cost = catalog.value[internalId]?.cost
-    return cost ? cost : null
+  // Las ventas guardan el código que tenía el producto al venderse: si después se cambió el código
+  // en el catálogo (p. ej. 7313 → 00050), se empareja por nombre.
+  const normalizeName = (s: string) =>
+    s.normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/\s+/g, ' ').trim().toUpperCase()
+  const catalogByName = computed(() => new Map(Object.values(catalog.value).map((it) => [normalizeName(it.description), it])))
+
+  /** Costo unitario sin IGV del producto (por código, o por nombre si el código ya no existe); null si no tiene costo */
+  function unitCost(internalId: string, description: string): number | null {
+    const item = catalog.value[internalId] ?? catalogByName.value.get(normalizeName(description))
+    return item?.cost ? item.cost : null
   }
 
   /** Costo sin IGV de lo vendido en un documento (solo productos con costo) */
   function recordCost(r: SaleRecord): number {
     let cost = 0
-    for (const item of r.items ?? []) cost += (unitCost(item.internal_id) ?? 0) * Number(item.quantity)
+    for (const item of r.items ?? []) cost += (unitCost(item.internal_id, item.description) ?? 0) * Number(item.quantity)
     return cost
   }
 
@@ -289,7 +298,7 @@ export function createAnalyticsData() {
       for (const item of record.items ?? []) {
         if (!item.internal_id) continue
         const key = item.internal_id
-        const unit = unitCost(key)
+        const unit = unitCost(key, item.description)
         const row = map.get(key) ?? { internal_id: item.internal_id, description: item.description, quantity: 0, total: 0, net: 0, cost: unit === null ? null : 0 }
         row.quantity += Number(item.quantity)
         row.total += Number(item.total)
@@ -316,10 +325,17 @@ export function createAnalyticsData() {
     const issues: CostIssue[] = []
     for (const p of productStats.value) {
       if (p.net <= 0) continue
-      if (p.cost === null) issues.push({ internal_id: p.internal_id, description: p.description, issue: 'sin-costo', net: p.net, cost: null })
-      else if (p.cost > p.net) issues.push({ internal_id: p.internal_id, description: p.description, issue: 'margen-negativo', net: p.net, cost: p.cost })
+      const base = { internal_id: p.internal_id, description: p.description, net: p.net, cost: p.cost }
+      if (p.cost === null) issues.push({ ...base, issue: 'sin-costo' })
+      else if (p.cost > p.net) issues.push({ ...base, issue: 'margen-negativo' })
+      else {
+        // Márgenes extremos suelen ser un costo cargado por caja/paquete en vez de por unidad (o al revés)
+        const margin = (p.net - p.cost) / p.net
+        if (margin >= UNUSUAL_MARGIN.high || margin <= UNUSUAL_MARGIN.low) issues.push({ ...base, issue: 'margen-inusual' })
+      }
     }
-    return issues.sort((a, b) => Math.abs((b.cost ?? 0) - b.net) - Math.abs((a.cost ?? 0) - a.net))
+    const priority = { 'margen-negativo': 0, 'sin-costo': 1, 'margen-inusual': 2 }
+    return issues.sort((a, b) => priority[a.issue] - priority[b.issue] || b.net - a.net)
   })
 
   /** Ventas por cliente (sin ordenar). */

@@ -50,6 +50,25 @@ describe('utilidad', () => {
     expect(issues).toHaveLength(2)
   })
 
+  it('código cambiado en el catálogo: empareja el costo por nombre', () => {
+    const d = createAnalyticsData()
+    // La venta guarda el código viejo 7313; en el catálogo el mismo producto ahora es 00050
+    d.records.value = [sale({ total: '118', total_igv: '18', items: [{ ...item('7313', 10, 118), description: 'GALONERAS  DE 7 Litros' }] })]
+    d.catalog.value = { '00050': { ...catalogItem('00050', 4), description: 'GALONERAS DE 7 LITROS' } }
+    expect(d.costOfSales.value).toBeCloseTo(40)
+    expect(d.costIssues.value).toEqual([])
+  })
+
+  it('margen inusual (≥ 90 % o ≤ 5 %): probable costo por paquete en vez de por unidad', () => {
+    const d = createAnalyticsData()
+    d.records.value = [sale({
+      total: '236', total_igv: '36',
+      items: [item('T', 100, 118), item('L', 1, 118)], // venta neta 100 cada uno
+    })]
+    d.catalog.value = { T: catalogItem('T', 0.05), L: catalogItem('L', 98) } // márgenes 95 % y 2 %
+    expect(d.costIssues.value.map((i) => [i.internal_id, i.issue])).toEqual([['T', 'margen-inusual'], ['L', 'margen-inusual']])
+  })
+
   it('sin catálogo no hay costos a revisar (la utilidad no se muestra)', () => {
     const d = setup()
     d.catalog.value = {}

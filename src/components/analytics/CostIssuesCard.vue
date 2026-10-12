@@ -1,12 +1,22 @@
 <script setup lang="ts">
 import { computed } from 'vue'
-import { useAnalyticsData } from '../../composables/useAnalyticsData'
+import { useAnalyticsData, UNUSUAL_MARGIN, type CostIssue } from '../../composables/useAnalyticsData'
 import { fmt } from '../../utils/format'
 
 const { costIssues, uncostedSales } = useAnalyticsData()
 
-const missing = computed(() => costIssues.value.filter((i) => i.issue === 'sin-costo').length)
-const negative = computed(() => costIssues.value.filter((i) => i.issue === 'margen-negativo').length)
+const count = (issue: CostIssue['issue']) => costIssues.value.filter((i) => i.issue === issue).length
+const missing = computed(() => count('sin-costo'))
+const negative = computed(() => count('margen-negativo'))
+const unusual = computed(() => count('margen-inusual'))
+
+const labels: Record<CostIssue['issue'], string> = {
+  'sin-costo': 'Sin costo',
+  'margen-negativo': 'Costo > venta',
+  'margen-inusual': 'Margen inusual',
+}
+
+const margin = (i: CostIssue) => (i.cost === null || !i.net ? null : ((i.net - i.cost) / i.net) * 100)
 </script>
 
 <template>
@@ -28,6 +38,11 @@ const negative = computed(() => costIssues.value.filter((i) => i.issue === 'marg
       <template v-if="negative">
         <strong>{{ negative }}</strong> con costo mayor que la venta: probablemente el costo es de la caja o paquete, no de la unidad.
       </template>
+      <template v-if="unusual && (missing || negative)"> · </template>
+      <template v-if="unusual">
+        <strong>{{ unusual }}</strong> con margen inusual (≥ {{ UNUSUAL_MARGIN.high * 100 }}% o ≤ {{ UNUSUAL_MARGIN.low * 100 }}%):
+        revisar que el costo y la venta estén en la misma unidad.
+      </template>
     </p>
     <div class="table-scroll">
       <table>
@@ -38,6 +53,7 @@ const negative = computed(() => costIssues.value.filter((i) => i.issue === 'marg
             <th>Problema</th>
             <th class="right">Venta neta (S/.)</th>
             <th class="right">Costo (S/.)</th>
+            <th class="right">Margen</th>
           </tr>
         </thead>
         <tbody>
@@ -45,10 +61,11 @@ const negative = computed(() => costIssues.value.filter((i) => i.issue === 'marg
             <td class="mono code">{{ i.internal_id }}</td>
             <td class="desc">{{ i.description }}</td>
             <td>
-              <span class="badge" :class="i.issue">{{ i.issue === 'sin-costo' ? 'Sin costo' : 'Costo > venta' }}</span>
+              <span class="badge" :class="i.issue">{{ labels[i.issue] }}</span>
             </td>
             <td class="right mono">{{ fmt(i.net) }}</td>
             <td class="right mono">{{ i.cost === null ? '—' : fmt(i.cost) }}</td>
+            <td class="right mono">{{ margin(i) === null ? '—' : margin(i)!.toFixed(0) + '%' }}</td>
           </tr>
         </tbody>
       </table>
@@ -81,4 +98,5 @@ const negative = computed(() => costIssues.value.filter((i) => i.issue === 'marg
 }
 .badge.sin-costo { background: #fef3c7; color: #b45309; }
 .badge.margen-negativo { background: #fee2e2; color: #dc2626; }
+.badge.margen-inusual { background: #e0e7ff; color: #4338ca; }
 </style>

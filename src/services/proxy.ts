@@ -512,6 +512,7 @@ interface CatalogItemRaw {
   purchase_affectation_igv_type_id: string // "10" = gravado
   stock: string
   stock_min: string
+  active?: boolean
 }
 
 const parseAmount = (s: string | number) => Number(String(s).replace(/[^0-9.-]/g, '')) || 0
@@ -519,7 +520,9 @@ const parseAmount = (s: string | number) => Number(String(s).replace(/[^0-9.-]/g
 export async function fetchProductCatalog(): Promise<CatalogItem[]> {
   const fetchPage = async (page: number) =>
     (await proxy.get<PagedResponse<CatalogItemRaw>>('/proxy/items/records', { params: { column: 'description', value: '', page } })).data
-  const raw = await fetchAllPages(fetchPage)
+  // La API ya excluye los productos inhabilitados; se filtra igual por si cambia ese comportamiento.
+  // Sus ventas antiguas se emparejan por nombre con el producto vigente (ver unitCost en useAnalyticsData).
+  const raw = (await fetchAllPages(fetchPage)).filter((it) => it.active !== false)
   return raw.map((it) => {
     const price = parseAmount(it.purchase_unit_price)
     const priceIncludesIgv = it.purchase_has_igv_description === 'Si' && it.purchase_affectation_igv_type_id === '10'

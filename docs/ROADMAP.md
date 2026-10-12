@@ -60,17 +60,20 @@ Hecho cuando: la suma coincide con el reporte de compras de facturaofitec para e
 - [x] Costo de ventas = Σ cantidad vendida × costo (facturas, boletas y notas de venta)
 - [x] KPIs Utilidad bruta (margen %) y Utilidad neta; columnas costo y margen en Top productos
 - [x] Estado de resultados mensual con selector Utilidad / Flujo de caja (reemplaza Balance mensual)
-- [x] Tarjeta "Costos a revisar": productos sin costo y con costo mayor que la venta
+- [x] Tarjeta "Costos a revisar": productos sin costo, con costo mayor que la venta o con margen inusual (≥ 90 % / ≤ 5 %)
+- [x] Ventas de productos inhabilitados o con código cambiado (p. ej. duplicado 7313 → 00050): costo emparejado por nombre
 
 Hecho cuando: el margen por producto es razonable y no hay ventas sin costo sin avisar.
 
 ## Fase 4 — Inventario en el tiempo
 
-- [ ] 👤 Conteo físico con fecha de corte y ajuste del stock en facturaofitec (Inventario → Movimientos)
-- [ ] 👤 Registrar un movimiento de prueba para conocer la estructura de `/inventory/records`
+- [ ] 👤 Conteo físico y carga con **"Stock Real"** (fija el stock exacto). El 11/10 el cliente puso todo en 0
+      y probó con 00013 (12 u.). **No** registrar además el inventario inicial como compra: duplica el stock
+- [x] Movimientos legibles: `/reports/kardex/records?item_id&warehouse_id&date_start&date_end` devuelve tipo
+      (Stock Real, Compra, Anulación Compra, Nota de venta…), entrada, salida y **saldo** por producto y almacén
 - [ ] 👤 Definir qué productos son mercadería (excluir producidos/servicios: recargas, maquila, etc.)
 - [ ] 👤 Definir si el inventario se ve total o por almacén (hay 4; todo el stock está en Oficina Principal)
-- [ ] Reconstrucción: stock(fecha) = saldo inicial + compras − ventas ± movimientos
+- [ ] Historial desde el kardex (saldo por fecha); se puede volver a calcular desde compras y ventas para validar
 - [ ] Sección Mercadería: stock inicial, entradas, salidas, stock final, valor, por producto
 - [ ] Evolución mensual del inventario valorizado; alertas de stock negativo y bajo mínimo
 - [ ] Control: el stock calculado para hoy debe coincidir con el de facturaofitec (avisar si no)
