@@ -1,5 +1,6 @@
 import { openDB, type DBSchema, type IDBPDatabase } from 'idb'
 import type { SaleRecord, CustomerCacheEntry, ExpenseRecord, PurchaseRecord } from './proxy'
+import type { KardexMove } from './inventory'
 
 // ── Schema ────────────────────────────────────────────────────────────────────
 
@@ -25,6 +26,10 @@ interface CachedExpense extends ExpenseRecord {
 }
 
 interface CachedPurchase extends PurchaseRecord {
+  _month: string
+}
+
+interface CachedKardex extends KardexMove {
   _month: string
 }
 
@@ -56,6 +61,15 @@ interface OceansDB extends DBSchema {
     key: string
     value: SyncEntry
   }
+  kardex: {
+    key: number
+    value: CachedKardex
+    indexes: { by_month: string }
+  }
+  sync_kardex: {
+    key: string
+    value: SyncEntry
+  }
   metadata: {
     key: string
     value: CustomerMeta
@@ -63,7 +77,7 @@ interface OceansDB extends DBSchema {
 }
 
 const DB_NAME = 'oceans-analytics'
-const DB_VERSION = 6
+const DB_VERSION = 7
 
 let _db: IDBPDatabase<OceansDB> | null = null
 
@@ -100,6 +114,11 @@ async function getDB(): Promise<IDBPDatabase<OceansDB>> {
         pur.createIndex('by_month', '_month')
         db.createObjectStore('sync_purchases')
       }
+      if (oldVersion < 7) {
+        const kdx = db.createObjectStore('kardex', { autoIncrement: true })
+        kdx.createIndex('by_month', '_month')
+        db.createObjectStore('sync_kardex')
+      }
     },
   })
   return _db
@@ -112,12 +131,14 @@ const MONTHLY_STORES = {
   sales: { data: 'records', sync: 'sync_registry' },
   expenses: { data: 'expenses', sync: 'sync_expenses' },
   purchases: { data: 'purchases', sync: 'sync_purchases' },
+  kardex: { data: 'kardex', sync: 'sync_kardex' },
 } as const
 
 interface MonthlyKinds {
   sales: SaleRecord
   expenses: ExpenseRecord
   purchases: PurchaseRecord
+  kardex: KardexMove
 }
 
 export type MonthlyKind = keyof MonthlyKinds
@@ -177,7 +198,7 @@ export function monthlyCache<K extends MonthlyKind>(kind: K): MonthlyCache<Month
       const tx = db.transaction([data, sync], 'readwrite')
       const store = tx.objectStore(data)
       // Las tres stores comparten forma: registro + _month (idb no puede tiparlo con la store como unión)
-      for (const r of records) await store.add({ ...r, _month: monthKey } as CachedRecord & CachedExpense & CachedPurchase)
+      for (const r of records) await store.add({ ...r, _month: monthKey } as CachedRecord & CachedExpense & CachedPurchase & CachedKardex)
       const entry: SyncEntry = {
         key: monthKey,
         synced_at: new Date().toISOString(),
@@ -205,13 +226,15 @@ export async function getSyncRegistry(): Promise<Record<string, SyncEntry>> {
 
 export async function clearAllCache(): Promise<void> {
   const db = await getDB()
-  const tx = db.transaction(['records', 'sync_registry', 'expenses', 'sync_expenses', 'purchases', 'sync_purchases', 'metadata'], 'readwrite')
+  const tx = db.transaction(['records', 'sync_registry', 'expenses', 'sync_expenses', 'purchases', 'sync_purchases', 'kardex', 'sync_kardex', 'metadata'], 'readwrite')
   await tx.objectStore('records').clear()
   await tx.objectStore('sync_registry').clear()
   await tx.objectStore('expenses').clear()
   await tx.objectStore('sync_expenses').clear()
   await tx.objectStore('purchases').clear()
   await tx.objectStore('sync_purchases').clear()
+  await tx.objectStore('kardex').clear()
+  await tx.objectStore('sync_kardex').clear()
   await tx.objectStore('metadata').clear()
   await tx.done
 }

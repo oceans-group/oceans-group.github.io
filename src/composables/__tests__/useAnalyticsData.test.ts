@@ -12,7 +12,7 @@ const sale = (r: Partial<SaleRecord>): SaleRecord => ({
 })
 
 const catalogItem = (internal_id: string, cost: number): CatalogItem =>
-  ({ id: 0, internal_id, description: `Producto ${internal_id}`, cost, stock: 0, stock_min: 0 })
+  ({ id: 0, internal_id, description: `Producto ${internal_id}`, cost, stock: 0, stock_min: 0, category: '' })
 
 function setup() {
   const d = createAnalyticsData()

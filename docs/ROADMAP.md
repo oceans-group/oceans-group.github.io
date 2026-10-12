@@ -65,20 +65,21 @@ Hecho cuando: la suma coincide con el reporte de compras de facturaofitec para e
 
 Hecho cuando: el margen por producto es razonable y no hay ventas sin costo sin avisar.
 
-## Fase 4 — Inventario en el tiempo
+## Fase 4 — Inventario en el tiempo *(primera versión hecha)*
 
-- [ ] 👤 Conteo físico y carga con **"Stock Real"** (fija el stock exacto). El 11/10 el cliente puso todo en 0
-      y probó con 00013 (12 u.). **No** registrar además el inventario inicial como compra: duplica el stock
-- [x] Movimientos legibles: `/reports/kardex/records?item_id&warehouse_id&date_start&date_end` devuelve tipo
-      (Stock Real, Compra, Anulación Compra, Nota de venta…), entrada, salida y **saldo** por producto y almacén
-- [ ] 👤 Definir qué productos son mercadería (excluir producidos/servicios: recargas, maquila, etc.)
-- [ ] 👤 Definir si el inventario se ve total o por almacén (hay 4; todo el stock está en Oficina Principal)
-- [ ] Historial desde el kardex (saldo por fecha); se puede volver a calcular desde compras y ventas para validar
-- [ ] Sección Mercadería: stock inicial, entradas, salidas, stock final, valor, por producto
-- [ ] Evolución mensual del inventario valorizado; alertas de stock negativo y bajo mínimo
-- [ ] Control: el stock calculado para hoy debe coincidir con el de facturaofitec (avisar si no)
-
-Limitación: no hay historial antes de la fecha de corte; facturaofitec solo entrega el stock actual.
+- [x] Pestaña **Inventario** (se carga al abrirla): valor al cierre, stock negativo, bajo mínimo; por producto
+      stock inicial, inv. inicial/ajustes, compras, producción, ventas, mermas, otros, stock final, costo y valor;
+      evolución mensual del valor
+- [x] Datos: `/reports/kardex/records` (todos los almacenes) con caché por mes + stock actual de `/inventory/records`
+- [x] Saldo reconstruido hacia atrás desde el stock actual de facturaofitec. **No** se usa la columna "saldo" del
+      kardex: filtrado por fechas arranca de un valor que no coincide con el stock real
+- [x] Costo promedio móvil: cada compra a su costo (sin IGV); el resto al costo del catálogo; editar/anular
+      una compra no desvía el promedio
+- [x] Fecha de corte `INVENTORY_START` (11/10/2026) en `services/inventory.ts`: actualizarla si se rehace el conteo
+- [ ] 👤 Categorías en facturaofitec (Servicio se excluye; Materia prima / Producto terminado / Reventa separan el valor)
+- [ ] 👤 Conteo con "16 · Inventario inicial"; operarios con "10 · Salida a producción" / "19 · Ingreso de producción"
+- [ ] Sección Producción: insumos consumidos vs productos terminados, alertas de proporción y mermas
+- [ ] Utilidad con costo promedio en vez del costo del catálogo (para productos con compras)
 
 ## Fase 5 — Mantenimiento *(hecha en lo que aporta hoy)*
 

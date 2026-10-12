@@ -3,6 +3,8 @@ import {
   type SalesFilter, type SaleRecord, type ExpenseRecord, type PurchaseRecord, type LoadProgress,
 } from './proxy'
 import { monthlyCache, getSyncRegistry, type MonthlyCache } from './cache'
+import { fetchKardex, type KardexMove } from './inventory'
+import type { CatalogItem } from './proxy'
 
 // ── Helpers de fechas ─────────────────────────────────────────────────────────
 
@@ -197,4 +199,18 @@ export function loadPurchasesForRange(
     fetchAllPurchases(makeFilter(baseFilter, dateStart, dateEnd, month), (p) =>
       onPage({ ...p, label: `${month} · ${p.label}` }))
   return loadRangeWithCache(startDate, endDate, fetch, monthlyCache('purchases'), 'Compras ', onProgress)
+}
+
+/**
+ * Kardex de los productos en un rango, con la misma caché por mes. Se piden todos los productos activos
+ * (no solo los que se muestran) para que cambiar la categoría de un producto no deje meses incompletos.
+ */
+export function loadKardexForRange(
+  startDate: string,
+  endDate: string,
+  items: Pick<CatalogItem, 'id' | 'internal_id'>[],
+  onProgress?: (p: AnalyticsProgress) => void,
+): Promise<KardexMove[]> {
+  const fetch: RangeFetcher<KardexMove> = (dateStart, dateEnd, _month, onPage) => fetchKardex(items, dateStart, dateEnd, onPage)
+  return loadRangeWithCache(startDate, endDate, fetch, monthlyCache('kardex'), 'Kardex ', onProgress)
 }

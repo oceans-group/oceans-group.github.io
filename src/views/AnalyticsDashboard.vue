@@ -17,20 +17,22 @@ import TopClientsCard from '../components/analytics/TopClientsCard.vue'
 import ClientTypeCard from '../components/analytics/ClientTypeCard.vue'
 import InactiveClientsCard from '../components/analytics/InactiveClientsCard.vue'
 import ChurnedClientsCard from '../components/analytics/ChurnedClientsCard.vue'
+import InventoryTab from '../components/analytics/InventoryTab.vue'
 
 const { loading, error, warnings, activeRecords, productStats, expenses, costIssues, drilldown, closeDrilldown, init } = provideAnalyticsData()
 
 // ── Pestañas (en la URL para poder compartir el enlace) ─────────────────────
 
-type Tab = 'resultados' | 'clientes'
+type Tab = 'resultados' | 'inventario' | 'clientes'
 const tabs: { id: Tab; label: string }[] = [
   { id: 'resultados', label: 'Resultados' },
+  { id: 'inventario', label: 'Inventario' },
   { id: 'clientes', label: 'Clientes' },
 ]
 
 const route = useRoute()
 const router = useRouter()
-const activeTab = computed<Tab>(() => (route.query.tab === 'clientes' ? 'clientes' : 'resultados'))
+const activeTab = computed<Tab>(() => tabs.find((t) => t.id === route.query.tab)?.id ?? 'resultados')
 
 function selectTab(tab: Tab) {
   router.replace({ query: { ...route.query, tab: tab === 'resultados' ? undefined : tab } })
@@ -73,6 +75,8 @@ onMounted(init)
         </div>
         <ExpensesByTypeCard v-if="expenses.length" />
       </template>
+
+      <InventoryTab v-else-if="activeTab === 'inventario'" />
 
       <template v-else>
         <div class="grid-2col">

@@ -5,8 +5,10 @@ import {
   type CatalogItem,
 } from '../services/proxy'
 import { netFactor } from '../utils/igv'
+import { fetchCurrentStock, INVENTORY_START, type KardexMove } from '../services/inventory'
+import { valueItem, type ItemValuation } from '../utils/valuation'
 import {
-  loadRecordsForRange, loadExpensesForRange, loadPurchasesForRange, getMonthsStatus,
+  loadRecordsForRange, loadExpensesForRange, loadPurchasesForRange, loadKardexForRange, getMonthsStatus,
   type AnalyticsProgress, type MonthStatus,
 } from '../services/analytics'
 import { monthlyCache, clearAllCache, getCustomerCacheFromDB, saveCustomerCacheToDB } from '../services/cache'
@@ -22,6 +24,17 @@ export interface ProductRow {
   /** Costo de lo vendido sin IGV; null si el producto no tiene costo en el catálogo */
   cost: number | null
 }
+
+export interface InventoryRow {
+  internal_id: string
+  description: string
+  category: string
+  stockMin: number
+  valuation: ItemValuation
+}
+
+/** Los servicios (recargas, maquila…) no son inventario */
+export const isServiceCategory = (category: string) => /SERVICIO/i.test(category)
 
 export interface CostIssue {
   internal_id: string
@@ -87,6 +100,8 @@ export function createAnalyticsData() {
   const loadProgressPur = ref<AnalyticsProgress | null>(null)
   /** Catálogo de productos por código; vacío si no cargó (la utilidad no se puede calcular) */
   const catalog = ref<Record<string, CatalogItem>>({})
+  /** Rango de la última búsqueda exitosa (el inventario lo sigue) */
+  const loadedRange = ref<{ start: string; end: string } | null>(null)
   const monthsStatus = ref<MonthStatus[]>([])
 
   /** Limpia un mes de la caché local en ventas, gastos y compras */
@@ -94,6 +109,7 @@ export function createAnalyticsData() {
     await monthlyCache('sales').clearMonth(monthKey)
     await monthlyCache('expenses').clearMonth(monthKey)
     await monthlyCache('purchases').clearMonth(monthKey)
+    await monthlyCache('kardex').clearMonth(monthKey)
   }
 
   function baseFilter() {
@@ -129,6 +145,7 @@ export function createAnalyticsData() {
       records.value = recs
       expenses.value = exps
       purchases.value = purs
+      loadedRange.value = { start, end }
       monthsStatus.value = await getMonthsStatus(start, end)
     } catch (e) {
       error.value = e instanceof Error ? e.message : 'Error al cargar los datos'
@@ -374,6 +391,75 @@ export function createAnalyticsData() {
       .sort((a, b) => b.days_inactive - a.days_inactive)
   })
 
+  // ── Inventario (se carga al abrir la pestaña) ───────────────────────────────
+
+  const inventoryLoading = ref(false)
+  const inventoryProgress = ref<AnalyticsProgress | null>(null)
+  const inventoryError = ref<string | null>(null)
+  /** Rango valorizado: empieza como mínimo en la fecha de corte */
+  const inventoryRange = ref<{ start: string; end: string } | null>(null)
+  const kardex = ref<KardexMove[]>([])
+  const currentStock = ref<Record<string, number>>({})
+  /** Compras desde el corte: dan el costo de cada entrada por compra */
+  const inventoryPurchases = ref<PurchaseRecord[]>([])
+
+  async function loadInventory() {
+    const range = loadedRange.value
+    if (!range || !catalogReady.value || range.end < INVENTORY_START) return
+    const start = range.start < INVENTORY_START ? INVENTORY_START : range.start
+    if (inventoryRange.value?.start === start && inventoryRange.value.end === range.end) return
+    inventoryLoading.value = true
+    inventoryError.value = null
+    try {
+      // Desde el corte (ahí arranca el costo promedio) hasta HOY: el saldo se reconstruye hacia atrás
+      // desde el stock actual, así que hacen falta también los movimientos posteriores al rango
+      const today = new Date().toISOString().slice(0, 10)
+      const until = range.end > today ? range.end : today
+      const [moves, stock, purs] = await Promise.all([
+        loadKardexForRange(INVENTORY_START, until, Object.values(catalog.value), (p) => { inventoryProgress.value = p }),
+        fetchCurrentStock(),
+        loadPurchasesForRange(INVENTORY_START, until, baseFilter()),
+      ])
+      kardex.value = moves
+      currentStock.value = stock
+      inventoryPurchases.value = purs
+      inventoryRange.value = { start, end: range.end }
+    } catch (e) {
+      inventoryError.value = e instanceof Error ? e.message : 'No se pudo cargar el inventario'
+    } finally {
+      inventoryLoading.value = false
+      inventoryProgress.value = null
+    }
+  }
+
+  const inventoryRows = computed<InventoryRow[]>(() => {
+    const range = inventoryRange.value
+    if (!range) return []
+    const movesByItem = new Map<string, KardexMove[]>()
+    for (const m of kardex.value) {
+      const list = movesByItem.get(m.internal_id)
+      if (list) list.push(m)
+      else movesByItem.set(m.internal_id, [m])
+    }
+    // Costo unitario sin IGV de cada línea de compra, por documento y producto
+    const purchaseCost = new Map<string, number>()
+    for (const p of inventoryPurchases.value) for (const it of p.items) purchaseCost.set(`${p.number}|${it.internal_id}`, it.unit_value)
+
+    return Object.values(catalog.value)
+      .filter((it) => !isServiceCategory(it.category))
+      .map((it) => {
+        const valuation = valueItem({
+          moves: movesByItem.get(it.internal_id) ?? [],
+          currentQty: currentStock.value[it.internal_id] ?? it.stock,
+          catalogCost: it.cost,
+          purchaseCost: (number) => purchaseCost.get(`${number}|${it.internal_id}`),
+          startDate: range.start,
+          endDate: range.end,
+        })
+        return { internal_id: it.internal_id, description: it.description, category: it.category, stockMin: it.stock_min, valuation }
+      })
+  })
+
   // ── Drill-down de documentos ────────────────────────────────────────────────
 
   const drilldown = ref<{ open: boolean; title: string; docs: DrilldownDoc[] }>({ open: false, title: '', docs: [] })
@@ -396,6 +482,7 @@ export function createAnalyticsData() {
     totalSales, totalExpenses, periodPurchases, totalPurchases, openingBalanceTotal, totalDocs, totalClients,
     netSales, costOfSales, grossProfit, netProfit, uncostedSales, costIssues, recordCost, productStats, clientStats, inactiveClients,
     drilldown, openDrilldown, closeDrilldown,
+    loadedRange, inventoryLoading, inventoryProgress, inventoryError, inventoryRange, inventoryRows, loadInventory,
   }
 }
 

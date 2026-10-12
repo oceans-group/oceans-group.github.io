@@ -30,7 +30,7 @@ export interface SaleRecord {
   source?: 'document' | 'sale_note'
 }
 
-interface PagedResponse<T> {
+export interface PagedResponse<T> {
   data: T[]
   meta: { current_page: number; last_page: number; total: number; per_page: string }
 }
@@ -177,7 +177,7 @@ async function withRetry<T>(fn: () => Promise<T>, maxRetries = 2): Promise<T> {
 
 const BATCH_SIZE = 5
 
-async function fetchAllPages<T>(
+export async function fetchAllPages<T>(
   fetchPage: (page: number) => Promise<PagedResponse<T>>,
   onProgress?: (p: LoadProgress, label: string) => void,
   label = '',
@@ -501,6 +501,8 @@ export interface CatalogItem {
   cost: number
   stock: number
   stock_min: number
+  /** Categoría en facturaofitec: Materia prima, Producto terminado, Reventa, Servicio… ('' si no tiene) */
+  category: string
 }
 
 interface CatalogItemRaw {
@@ -512,6 +514,7 @@ interface CatalogItemRaw {
   purchase_affectation_igv_type_id: string // "10" = gravado
   stock: string
   stock_min: string
+  category_description?: string
   active?: boolean
 }
 
@@ -533,6 +536,7 @@ export async function fetchProductCatalog(): Promise<CatalogItem[]> {
       cost: priceIncludesIgv ? price / (1 + IGV_RATE) : price,
       stock: parseAmount(it.stock),
       stock_min: parseAmount(it.stock_min),
+      category: (it.category_description ?? '').trim(),
     }
   })
 }
