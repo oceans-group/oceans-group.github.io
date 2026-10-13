@@ -9,7 +9,7 @@ const { productStats } = useAnalyticsData()
 const donutData = computed(() => {
   // Siempre por importe para que el % de ingreso sea correcto,
   // independiente del sort activo en la tabla (cantidad vs importe)
-  const byTotal = [...productStats.value].sort((a, b) => b.total - a.total)
+  const byTotal = productStats.value.filter((p) => !p.inactive).sort((a, b) => b.total - a.total)
   const top10 = byTotal.slice(0, 10)
   const otherTotal = byTotal.slice(10).reduce((s, p) => s + p.total, 0)
   const labels = top10.map((p) => p.description)

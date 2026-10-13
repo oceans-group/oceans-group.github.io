@@ -23,6 +23,8 @@ export interface ProductRow {
   net: number
   /** Costo de lo vendido sin IGV; null si el producto no tiene costo en el catálogo */
   cost: number | null
+  /** Producto desactivado sin equivalente activo: cuenta en los totales pero no se muestra en rankings */
+  inactive: boolean
 }
 
 export interface InventoryRow {
@@ -242,12 +244,36 @@ export function createAnalyticsData() {
   const documentTypeFilter = ref('')
   const selectedProductCodes = ref<string[]>([])
 
+  // ── Producto vigente de cada ítem vendido ───────────────────────────────────
+
+  const catalogReady = computed(() => Object.keys(catalog.value).length > 0)
+
+  // Las ventas guardan el código que tenía el producto al venderse. Si después se desactivó o cambió
+  // de código (p. ej. el duplicado 7313 → 00050), se busca el producto activo con el mismo nombre.
+  const normalizeName = (s: string) =>
+    s.normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/\s+/g, ' ').trim().toUpperCase()
+  const catalogByName = computed(() => new Map(Object.values(catalog.value).map((it) => [normalizeName(it.description), it])))
+
+  /** Producto activo del catálogo al que corresponde un ítem vendido (por código o por nombre); null si no hay */
+  function activeProduct(internalId: string, description: string): CatalogItem | null {
+    return catalog.value[internalId] ?? catalogByName.value.get(normalizeName(description)) ?? null
+  }
+
+  /** Código con el que se agrupa un ítem vendido: el del producto activo equivalente, o el suyo si no hay */
+  function productKey(item: { internal_id: string; description: string }): string {
+    return activeProduct(item.internal_id, item.description)?.internal_id ?? item.internal_id
+  }
+
+  /** Productos del filtro: solo activos (las ventas de desactivados se agrupan en su equivalente activo) */
   const allProductOptions = computed(() => {
     const map = new Map<string, string>()
     for (const r of records.value) {
       for (const item of r.items ?? []) {
-        if (item.internal_id && !map.has(item.internal_id))
-          map.set(item.internal_id, item.description)
+        if (!item.internal_id) continue
+        const active = activeProduct(item.internal_id, item.description)
+        if (catalogReady.value && !active) continue
+        const key = active?.internal_id ?? item.internal_id
+        if (!map.has(key)) map.set(key, active?.description ?? item.description)
       }
     }
     return [...map.entries()]
@@ -269,7 +295,7 @@ export function createAnalyticsData() {
 
     if (selectedProductCodes.value.length > 0)
       result = result.filter((r) =>
-        r.items?.some((item) => selectedProductCodes.value.includes(item.internal_id)),
+        r.items?.some((item) => selectedProductCodes.value.includes(productKey(item))),
       )
 
     return result
@@ -288,17 +314,9 @@ export function createAnalyticsData() {
   const totalDocs = computed(() => activeRecords.value.length)
   const totalClients = computed(() => new Set(activeRecords.value.map((r) => r.customer_number)).size)
 
-  const catalogReady = computed(() => Object.keys(catalog.value).length > 0)
-
-  // Las ventas guardan el código que tenía el producto al venderse: si después se cambió el código
-  // en el catálogo (p. ej. 7313 → 00050), se empareja por nombre.
-  const normalizeName = (s: string) =>
-    s.normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/\s+/g, ' ').trim().toUpperCase()
-  const catalogByName = computed(() => new Map(Object.values(catalog.value).map((it) => [normalizeName(it.description), it])))
-
   /** Costo unitario sin IGV del producto (por código, o por nombre si el código ya no existe); null si no tiene costo */
   function unitCost(internalId: string, description: string): number | null {
-    const item = catalog.value[internalId] ?? catalogByName.value.get(normalizeName(description))
+    const item = activeProduct(internalId, description)
     return item?.cost ? item.cost : null
   }
 
@@ -316,9 +334,14 @@ export function createAnalyticsData() {
       const factor = netFactor(record)
       for (const item of record.items ?? []) {
         if (!item.internal_id) continue
-        const key = item.internal_id
-        const unit = unitCost(key, item.description)
-        const row = map.get(key) ?? { internal_id: item.internal_id, description: item.description, quantity: 0, total: 0, net: 0, cost: unit === null ? null : 0 }
+        const active = activeProduct(item.internal_id, item.description)
+        const key = active?.internal_id ?? item.internal_id
+        const unit = unitCost(item.internal_id, item.description)
+        const row = map.get(key) ?? {
+          internal_id: key, description: active?.description ?? item.description,
+          quantity: 0, total: 0, net: 0, cost: unit === null ? null : 0,
+          inactive: catalogReady.value && !active,
+        }
         row.quantity += Number(item.quantity)
         row.total += Number(item.total)
         row.net += Number(item.total) * factor
@@ -343,7 +366,8 @@ export function createAnalyticsData() {
     if (!catalogReady.value) return []
     const issues: CostIssue[] = []
     for (const p of productStats.value) {
-      if (p.net <= 0) continue
+      // Un desactivado sin equivalente no se puede corregir en el catálogo
+      if (p.net <= 0 || p.inactive) continue
       const base = { internal_id: p.internal_id, description: p.description, net: p.net, cost: p.cost }
       if (p.cost === null) issues.push({ ...base, issue: 'sin-costo' })
       else if (p.cost > p.net) issues.push({ ...base, issue: 'margen-negativo' })
@@ -483,7 +507,7 @@ export function createAnalyticsData() {
     selectedPersonTypeIds, documentTypeFilter, selectedProductCodes, allProductOptions, activeRecords,
     totalSales, totalExpenses, periodPurchases, totalPurchases, openingBalanceTotal, totalDocs, totalClients,
     netSales, costOfSales, grossProfit, netProfit, uncostedSales, costIssues, recordCost, productStats, clientStats, inactiveClients,
-    drilldown, openDrilldown, closeDrilldown,
+    drilldown, openDrilldown, closeDrilldown, productKey,
     loadedRange, inventoryLoading, inventoryProgress, inventoryError, inventoryRange, inventoryRows, loadInventory,
   }
 }

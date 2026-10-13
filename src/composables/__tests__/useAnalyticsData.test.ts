@@ -59,6 +59,25 @@ describe('utilidad', () => {
     expect(d.costIssues.value).toEqual([])
   })
 
+  it('productos desactivados: se suman a su equivalente activo o quedan marcados si no tienen', () => {
+    const d = createAnalyticsData()
+    d.records.value = [sale({ total: '354', total_igv: '54', items: [
+      item('00050', 1, 118),
+      { ...item('7313', 2, 118), description: 'GALONERAS DE 7 LITROS' }, // duplicado desactivado de 00050
+      { ...item('00069', 1, 118), description: 'ENVASE BIDON DE 20 LITROS' }, // desactivado sin equivalente
+    ] })]
+    d.catalog.value = { '00050': { ...catalogItem('00050', 2), description: 'GALONERAS DE 7 LITROS' } }
+    const rows = Object.fromEntries(d.productStats.value.map((p) => [p.internal_id, p]))
+    expect(Object.keys(rows).sort()).toEqual(['00050', '00069'])
+    expect(rows['00050']).toMatchObject({ quantity: 3, total: 236, inactive: false })
+    expect(rows['00069']).toMatchObject({ inactive: true })
+    expect(d.allProductOptions.value.map((o) => o.id)).toEqual(['00050'])
+    // El filtro por 00050 incluye también la venta hecha con el código viejo
+    d.selectedProductCodes.value = ['00050']
+    expect(d.activeRecords.value).toHaveLength(1)
+    expect(d.costIssues.value.map((i) => i.internal_id)).not.toContain('00069')
+  })
+
   it('margen inusual (≥ 90 % o ≤ 5 %): probable costo por paquete en vez de por unidad', () => {
     const d = createAnalyticsData()
     d.records.value = [sale({

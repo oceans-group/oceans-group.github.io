@@ -4,7 +4,10 @@ import { useAnalyticsData, type ProductRow } from '../../composables/useAnalytic
 import { fmt } from '../../utils/format'
 import { saleToDoc } from '../../utils/drilldown'
 
-const { productStats, activeRecords, catalogReady, openDrilldown } = useAnalyticsData()
+const { productStats, activeRecords, catalogReady, openDrilldown, productKey } = useAnalyticsData()
+
+// Solo productos activos: las ventas de desactivados ya están sumadas en su equivalente activo
+const activeProducts = computed(() => productStats.value.filter((p) => !p.inactive))
 
 /** Margen bruto sobre la venta neta; null si el producto no tiene costo */
 function margin(p: ProductRow): number | null {
@@ -14,13 +17,13 @@ function margin(p: ProductRow): number | null {
 type SortKey = 'quantity' | 'total'
 const sortKey = ref<SortKey>('total')
 
-const topProducts = computed(() => [...productStats.value].sort((a, b) => b[sortKey.value] - a[sortKey.value]))
-const maxQuantity = computed(() => Math.max(1, ...productStats.value.map((p) => p.quantity)))
-const maxTotal = computed(() => Math.max(1, ...productStats.value.map((p) => p.total)))
+const topProducts = computed(() => [...activeProducts.value].sort((a, b) => b[sortKey.value] - a[sortKey.value]))
+const maxQuantity = computed(() => Math.max(1, ...activeProducts.value.map((p) => p.quantity)))
+const maxTotal = computed(() => Math.max(1, ...activeProducts.value.map((p) => p.total)))
 
 function openProductDrilldown(product: ProductRow) {
   const docs = activeRecords.value
-    .filter((r) => r.items?.some((item) => item.internal_id === product.internal_id))
+    .filter((r) => r.items?.some((item) => productKey(item) === product.internal_id))
     .map(saleToDoc)
   openDrilldown(`Documentos — ${product.description}`, docs)
 }
