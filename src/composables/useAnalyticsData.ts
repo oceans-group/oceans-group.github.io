@@ -5,7 +5,7 @@ import {
   type CatalogItem,
 } from '../services/proxy'
 import { netFactor } from '../utils/igv'
-import { fetchCurrentStock, INVENTORY_START, type KardexMove } from '../services/inventory'
+import { fetchCurrentStock, isOpeningBalance, INVENTORY_START, OPENING_BALANCE_UNTIL, type KardexMove } from '../services/inventory'
 import { valueItem, type ItemValuation } from '../utils/valuation'
 import {
   loadRecordsForRange, loadExpensesForRange, loadPurchasesForRange, loadKardexForRange, getMonthsStatus,
@@ -31,6 +31,8 @@ export interface InventoryRow {
   category: string
   stockMin: number
   valuation: ItemValuation
+  /** Inventario inicial: stock y valor al cierre del último día de carga (OPENING_BALANCE_UNTIL) */
+  initial: { qty: number; value: number }
 }
 
 /** Los servicios (recargas, maquila…) no son inventario */
@@ -278,10 +280,10 @@ export function createAnalyticsData() {
   const totalSales = computed(() => activeRecords.value.reduce((s, r) => s + Number(r.total), 0))
   const totalExpenses = computed(() => expenses.value.reduce((s, e) => s + Number(e.total), 0))
   /** Compras reales del periodo: sin la compra de saldo inicial de inventario */
-  const periodPurchases = computed(() => purchases.value.filter((p) => !p.is_opening_balance))
+  const periodPurchases = computed(() => purchases.value.filter((p) => !isOpeningBalance(p)))
   const totalPurchases = computed(() => periodPurchases.value.reduce((s, p) => s + p.total, 0))
   const openingBalanceTotal = computed(() =>
-    purchases.value.filter((p) => p.is_opening_balance).reduce((s, p) => s + p.total, 0),
+    purchases.value.filter((p) => isOpeningBalance(p)).reduce((s, p) => s + p.total, 0),
   )
   const totalDocs = computed(() => activeRecords.value.length)
   const totalClients = computed(() => new Set(activeRecords.value.map((r) => r.customer_number)).size)
@@ -448,15 +450,15 @@ export function createAnalyticsData() {
     return Object.values(catalog.value)
       .filter((it) => !isServiceCategory(it.category))
       .map((it) => {
-        const valuation = valueItem({
+        const base = {
           moves: movesByItem.get(it.internal_id) ?? [],
           currentQty: currentStock.value[it.internal_id] ?? it.stock,
           catalogCost: it.cost,
-          purchaseCost: (number) => purchaseCost.get(`${number}|${it.internal_id}`),
-          startDate: range.start,
-          endDate: range.end,
-        })
-        return { internal_id: it.internal_id, description: it.description, category: it.category, stockMin: it.stock_min, valuation }
+          purchaseCost: (number: string) => purchaseCost.get(`${number}|${it.internal_id}`),
+        }
+        const valuation = valueItem({ ...base, startDate: range.start, endDate: range.end })
+        const initial = valueItem({ ...base, startDate: INVENTORY_START, endDate: OPENING_BALANCE_UNTIL }).closing
+        return { internal_id: it.internal_id, description: it.description, category: it.category, stockMin: it.stock_min, valuation, initial }
       })
   })
 

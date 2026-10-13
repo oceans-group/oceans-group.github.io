@@ -77,14 +77,15 @@ describe('utilidad', () => {
 })
 
 describe('compras', () => {
-  it('el saldo inicial no cuenta como compra del periodo', () => {
+  it('el saldo inicial no cuenta como compra del periodo (por proveedor o por fecha hasta el 12/10)', () => {
     const d = createAnalyticsData()
     d.purchases.value = [
-      { total: 100, is_opening_balance: false } as PurchaseRecord,
-      { total: 5000, is_opening_balance: true } as PurchaseRecord,
+      { total: 100, is_opening_balance: false, date_of_issue: '2026-10-20' } as PurchaseRecord,
+      { total: 5000, is_opening_balance: true, date_of_issue: '2026-10-20' } as PurchaseRecord,
+      { total: 700, is_opening_balance: false, date_of_issue: '2026-10-12' } as PurchaseRecord,
     ]
     expect(d.totalPurchases.value).toBe(100)
-    expect(d.openingBalanceTotal.value).toBe(5000)
+    expect(d.openingBalanceTotal.value).toBe(5700)
   })
 })
 

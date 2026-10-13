@@ -76,7 +76,9 @@ Hecho cuando: el margen por producto es razonable y no hay ventas sin costo sin 
 - [x] Costo promedio móvil: cada compra a su costo (sin IGV); el resto al costo del catálogo; editar/anular
       una compra no desvía el promedio
 - [x] Fecha de corte `INVENTORY_START` (11/10/2026) en `services/inventory.ts`: actualizarla si se rehace el conteo
-- [ ] 👤 Categorías en facturaofitec (Servicio se excluye; Materia prima / Producto terminado / Reventa separan el valor)
+- [x] Saldo inicial cargado como compras del 10 al 12/10: toda compra hasta `OPENING_BALANCE_UNTIL` (12/10) es saldo
+      inicial (fuera de Compras y Flujo de caja; da el costo al inventario). Indicador "Inventario inicial (12/10)"
+- [ ] 👤 Categorías en facturaofitec (Servicio se excluye: recargas y maquila, que son agua; Materia prima / Producto terminado / Reventa separan el valor)
 - [ ] 👤 Conteo con "16 · Inventario inicial"; operarios con "10 · Salida a producción" / "19 · Ingreso de producción"
 - [ ] Sección Producción: insumos consumidos vs productos terminados, alertas de proporción y mermas
 - [ ] Utilidad con costo promedio en vez del costo del catálogo (para productos con compras)

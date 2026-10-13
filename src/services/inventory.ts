@@ -1,5 +1,5 @@
 import proxy from './api'
-import { fetchAllPages, type PagedResponse, type CatalogItem, type LoadProgress } from './proxy'
+import { fetchAllPages, type PagedResponse, type CatalogItem, type LoadProgress, type PurchaseRecord } from './proxy'
 
 /**
  * Fecha de corte del inventario: el 11/10/2026 el cliente dejó todo el stock en 0 ("Stock Real") para cargar
@@ -7,6 +7,17 @@ import { fetchAllPages, type PagedResponse, type CatalogItem, type LoadProgress 
  * Si el conteo se vuelve a hacer, actualizar esta fecha.
  */
 export const INVENTORY_START = '2026-10-11'
+
+/**
+ * Último día de carga del inventario inicial: el cliente lo registró como compras (10–12/10/2026).
+ * Esas compras son saldo inicial: no cuentan en Compras ni en el Flujo de caja, pero dan el costo al inventario.
+ */
+export const OPENING_BALANCE_UNTIL = '2026-10-12'
+
+/** Compra de saldo inicial: por fecha (hasta OPENING_BALANCE_UNTIL) o por proveedor "SALDO INICIAL…" */
+export function isOpeningBalance(p: Pick<PurchaseRecord, 'date_of_issue' | 'is_opening_balance'>): boolean {
+  return p.is_opening_balance || p.date_of_issue <= OPENING_BALANCE_UNTIL
+}
 
 // ── Kardex (Inventario → Reporte kardex de facturaofitec) ─────────────────────
 

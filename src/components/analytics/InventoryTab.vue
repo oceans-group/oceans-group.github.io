@@ -3,7 +3,7 @@ import { ref, computed, onMounted, watch } from 'vue'
 import { Bar } from 'vue-chartjs'
 import '../../utils/charts'
 import { useAnalyticsData, type InventoryRow } from '../../composables/useAnalyticsData'
-import { INVENTORY_START } from '../../services/inventory'
+import { INVENTORY_START, OPENING_BALANCE_UNTIL } from '../../services/inventory'
 import { fmt } from '../../utils/format'
 
 const {
@@ -45,8 +45,9 @@ const rows = computed(() =>
 // ── Totales ─────────────────────────────────────────────────────────────────
 
 const totals = computed(() => {
-  const t = { opening: 0, closing: 0, negatives: 0, belowMin: 0, byCategory: new Map<string, number>() }
+  const t = { initial: 0, opening: 0, closing: 0, negatives: 0, belowMin: 0, byCategory: new Map<string, number>() }
   for (const r of inventoryRows.value) {
+    t.initial += r.initial.value
     t.opening += r.valuation.opening.value
     t.closing += r.valuation.closing.value
     if (r.valuation.closing.qty < 0) t.negatives++
@@ -119,6 +120,11 @@ const monthlyOptions = {
           <!-- Si el rango empieza el día del corte, el "inicio" es antes del ajuste a 0 (saldos negativos viejos) -->
           <span v-if="inventoryRange.start > INVENTORY_START" class="kpi-sub">al inicio S/. {{ fmt(totals.opening) }}</span>
           <span v-else class="kpi-sub">desde el conteo inicial</span>
+        </div>
+        <div class="kpi">
+          <span class="kpi-label">Inventario inicial ({{ fmtDate(OPENING_BALANCE_UNTIL).slice(0, 5) }})</span>
+          <span class="kpi-value">S/. {{ fmt(totals.initial) }}</span>
+          <span class="kpi-sub">variación S/. {{ fmt(totals.closing - totals.initial) }}</span>
         </div>
         <template v-if="hasCategories">
           <div v-for="[cat, value] in totals.byCategory" :key="cat" class="kpi">
