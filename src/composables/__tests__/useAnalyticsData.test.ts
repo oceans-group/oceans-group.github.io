@@ -95,6 +95,26 @@ describe('utilidad', () => {
   })
 })
 
+describe('compras de mercadería registradas como gasto (hasta el 12/10)', () => {
+  const exp = (total: number, date_of_issue: string, expense_type_description: string) =>
+    ({ total, date_of_issue, expense_type_description } as ExpenseRecord)
+
+  it('no se descuentan de la utilidad neta; los demás gastos sí', () => {
+    const d = setup() // utilidad bruta 75
+    d.expenses.value = [
+      exp(1000, '2026-09-15', 'IMPORTACION INDUSTRIAS OCEANS PLAST - (DOLAR, CONTENEDORES, LOGISTICA)'),
+      exp(500, '2026-10-12', 'INDUSTRIAS OCEANS PLAST - ( COMPRA PERU PREFORMA, CAÑOS, MANTENIMIENTOS, BOLSAS, OTROS)'),
+      exp(20, '2026-09-15', 'PEAJES'),
+      // Después del 12/10 ya no es compra registrada como gasto: cuenta como gasto
+      exp(300, '2026-10-13', 'IMPORTACION INDUSTRIAS OCEANS PLAST - (DOLAR, CONTENEDORES, LOGISTICA)'),
+    ]
+    expect(d.totalExpenses.value).toBe(1820)
+    expect(d.merchandiseExpenses.value).toBe(1500)
+    expect(d.operatingExpenses.value).toBe(320)
+    expect(d.netProfit.value).toBeCloseTo(75 - 320)
+  })
+})
+
 describe('compras', () => {
   it('el saldo inicial no cuenta como compra del periodo (por proveedor o por fecha hasta el 12/10)', () => {
     const d = createAnalyticsData()

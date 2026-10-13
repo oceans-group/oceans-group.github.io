@@ -14,6 +14,19 @@ export const INVENTORY_START = '2026-10-11'
  */
 export const OPENING_BALANCE_UNTIL = '2026-10-12'
 
+/**
+ * Gastos diversos que en realidad fueron compras de mercadería: hasta OPENING_BALANCE_UNTIL las compras se
+ * registraban como gastos con estos tipos. Se excluyen de la utilidad neta (ya están en el costo de ventas)
+ * y en el flujo de caja se muestran como compras. "Gastos diversos por tipo" los sigue mostrando completos.
+ */
+const MERCHANDISE_EXPENSE_TYPES = /^IMPORTACION INDUSTRIAS OCEANS PLAST|^INDUSTRIAS OCEANS PLAST - \( ?COMPRA/
+
+export function isMerchandiseExpense(e: { date_of_issue: string; expense_type_description: string | null }): boolean {
+  // El tipo puede venir vacío (la tabla de gastos lo muestra como "Sin tipo")
+  const type = (e.expense_type_description ?? '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/\s+/g, ' ').trim().toUpperCase()
+  return e.date_of_issue <= OPENING_BALANCE_UNTIL && MERCHANDISE_EXPENSE_TYPES.test(type)
+}
+
 /** Compra de saldo inicial: por fecha (hasta OPENING_BALANCE_UNTIL) o por proveedor "SALDO INICIAL…" */
 export function isOpeningBalance(p: Pick<PurchaseRecord, 'date_of_issue' | 'is_opening_balance'>): boolean {
   return p.is_opening_balance || p.date_of_issue <= OPENING_BALANCE_UNTIL

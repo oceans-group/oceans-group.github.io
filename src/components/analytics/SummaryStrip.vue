@@ -5,7 +5,8 @@ import { INVENTORY_START, OPENING_BALANCE_UNTIL } from '../../services/inventory
 import { fmt } from '../../utils/format'
 
 const {
-  totalSales, netSales, costOfSales, grossProfit, totalExpenses, netProfit, totalPurchases, uncostedSales,
+  totalSales, netSales, costOfSales, grossProfit, totalExpenses, merchandiseExpenses, operatingExpenses, netProfit,
+  totalPurchases, uncostedSales,
   catalogReady, inventoryValue, inventoryLoading, loadedRange, totalDocs, totalClients,
 } = useAnalyticsData()
 
@@ -14,7 +15,9 @@ const igv = computed(() => totalSales.value - netSales.value)
 const grossMargin = computed(() => (netSales.value ? (grossProfit.value / netSales.value) * 100 : 0))
 
 // Flujo de caja: dinero que entra y sale tal como se cobra/paga (con IGV)
-const cashFlow = computed(() => totalSales.value - totalPurchases.value - totalExpenses.value)
+// Las compras de mercadería registradas como gastos (hasta el 12/10) se muestran como compras; el total no cambia
+const cashPurchases = computed(() => totalPurchases.value + merchandiseExpenses.value)
+const cashFlow = computed(() => totalSales.value - cashPurchases.value - operatingExpenses.value)
 
 const fmtDate = (d: string) => `${d.slice(8, 10)}/${d.slice(5, 7)}/${d.slice(0, 4)}`
 // Si el rango termina en el futuro, el inventario es el de hoy
@@ -24,8 +27,6 @@ const closingDate = computed(() => {
   return fmtDate(loadedRange.value.end < today ? loadedRange.value.end : today)
 })
 const beforeInventory = computed(() => !!loadedRange.value && loadedRange.value.end < INVENTORY_START)
-// Hasta el 12/10 las compras de mercadería se registraban como gastos diversos
-const mixesOldPurchases = computed(() => !!loadedRange.value && loadedRange.value.start <= OPENING_BALANCE_UNTIL)
 </script>
 
 <template>
@@ -68,14 +69,14 @@ const mixesOldPurchases = computed(() => !!loadedRange.value && loadedRange.valu
         <span class="op">−</span>
         <div class="tile">
           <span class="label">Gastos diversos</span>
-          <span class="value">{{ fmt(totalExpenses) }}</span>
-          <span class="sub">según registro</span>
+          <span class="value">{{ fmt(operatingExpenses) }}</span>
+          <span class="sub">{{ merchandiseExpenses > 0 ? 'sin compras de mercadería †' : 'según registro' }}</span>
         </div>
         <span class="op">=</span>
         <div class="tile result main">
           <span class="label">Utilidad neta</span>
           <span class="value" :class="netProfit >= 0 ? 'pos' : 'neg'">
-            {{ catalogReady ? fmt(netProfit) : '—' }}<sup v-if="catalogReady && (uncostedSales > 0 || mixesOldPurchases)" class="mark">*</sup>
+            {{ catalogReady ? fmt(netProfit) : '—' }}<sup v-if="catalogReady && uncostedSales > 0" class="mark">*</sup>
           </span>
           <span class="sub">{{ netProfit >= 0 ? 'ganancia' : 'pérdida' }} del periodo</span>
         </div>
@@ -94,13 +95,13 @@ const mixesOldPurchases = computed(() => !!loadedRange.value && loadedRange.valu
           <span class="op">−</span>
           <div class="tile">
             <span class="label">Compras mercadería</span>
-            <span class="value">{{ fmt(totalPurchases) }}</span>
-            <span class="sub">sin saldo inicial</span>
+            <span class="value">{{ fmt(cashPurchases) }}</span>
+            <span class="sub">{{ merchandiseExpenses > 0 ? 'incluye las registradas como gasto †' : 'sin saldo inicial' }}</span>
           </div>
           <span class="op">−</span>
           <div class="tile">
             <span class="label">Gastos diversos</span>
-            <span class="value">{{ fmt(totalExpenses) }}</span>
+            <span class="value">{{ fmt(operatingExpenses) }}</span>
           </div>
           <span class="op">=</span>
           <div class="tile result">
@@ -130,15 +131,16 @@ const mixesOldPurchases = computed(() => !!loadedRange.value && loadedRange.valu
       </section>
     </div>
 
-    <p v-if="catalogReady && (uncostedSales > 0 || mixesOldPurchases)" class="notes">
+    <p v-if="catalogReady && uncostedSales > 0" class="notes">
       <span class="mark">*</span>
-      <template v-if="uncostedSales > 0">
-        Incluye S/. {{ fmt(uncostedSales) }} de ventas netas de productos sin costo en el catálogo (su costo no se descuenta).
-      </template>
-      <template v-if="mixesOldPurchases">
-        Hasta el {{ fmtDate(OPENING_BALANCE_UNTIL) }} las compras de mercadería se registraban como gastos diversos: en ese
-        periodo la utilidad neta descuenta la mercadería dos veces (como gasto y como costo de ventas).
-      </template>
+      Incluye S/. {{ fmt(uncostedSales) }} de ventas netas de productos sin costo en el catálogo (su costo no se descuenta).
+    </p>
+    <p v-if="merchandiseExpenses > 0" class="notes">
+      <span class="mark">†</span>
+      Hasta el {{ fmtDate(OPENING_BALANCE_UNTIL) }} las compras de mercadería se registraban como gastos diversos
+      (IMPORTACIÓN e INDUSTRIAS OCEANS PLAST – COMPRA): S/. {{ fmt(merchandiseExpenses) }} no se descuentan de la utilidad
+      (ya están en el costo de ventas) y en el flujo de caja se muestran como compras. Gastos registrados en total:
+      S/. {{ fmt(totalExpenses) }}.
     </p>
   </div>
 </template>

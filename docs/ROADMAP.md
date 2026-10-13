@@ -102,7 +102,7 @@ Hecho cuando: el margen por producto es razonable y no hay ventas sin costo sin 
 
 | Tema | Decisión | Estado |
 |---|---|---|
-| Histórico de compras dentro de gastos | No se reclasifica; se parte del saldo inicial | Acordado |
+| Histórico de compras dentro de gastos | Gastos de tipo IMPORTACIÓN… e INDUSTRIAS OCEANS PLAST – ( COMPRA… hasta el 12/10 no se descuentan de la utilidad neta (ya están en el costo de ventas) y en el flujo se muestran como compras; "Gastos diversos por tipo" los sigue mostrando completos | Acordado (13/10) |
 | Saldo inicial | Ajuste de inventario en facturaofitec (preferido) o compra con proveedor exclusivo sin IGV | Acordado, falta ejecutar 👤 |
 | Prioridad | Utilidad primero; flujo de caja también | Acordado |
 | IGV | Resumen con ventas totales. Utilidad: facturas y boletas sin IGV; **notas de venta completas** (no se declaran, no pagan IGV); costos sin IGV; gastos tal como se registran. Regla en `src/utils/igv.ts` | Acordado |

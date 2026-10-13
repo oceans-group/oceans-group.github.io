@@ -5,6 +5,7 @@ import type { ChartData } from 'chart.js'
 import '../../utils/charts'
 import { useAnalyticsData } from '../../composables/useAnalyticsData'
 import { netFactor } from '../../utils/igv'
+import { isMerchandiseExpense } from '../../services/inventory'
 
 const { activeRecords, expenses, periodPurchases, catalogReady, recordCost } = useAnalyticsData()
 
@@ -28,7 +29,12 @@ const byMonth = computed(() => {
     t.netSales += Number(r.total) * netFactor(r)
     t.cost += recordCost(r)
   }
-  for (const e of expenses.value) get(e.date_of_issue.slice(0, 7)).expenses += Number(e.total)
+  for (const e of expenses.value) {
+    // Compras de mercadería registradas como gasto (hasta el 12/10): son compras, no gastos
+    const t = get(e.date_of_issue.slice(0, 7))
+    if (isMerchandiseExpense(e)) t.purchases += Number(e.total)
+    else t.expenses += Number(e.total)
+  }
   for (const p of periodPurchases.value) get(p.date_of_issue.slice(0, 7)).purchases += p.total
   return [...map.entries()].sort(([a], [b]) => a.localeCompare(b))
 })

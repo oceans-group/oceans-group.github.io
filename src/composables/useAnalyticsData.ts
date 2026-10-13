@@ -5,7 +5,7 @@ import {
   type CatalogItem,
 } from '../services/proxy'
 import { netFactor } from '../utils/igv'
-import { fetchCurrentStock, isOpeningBalance, INVENTORY_START, OPENING_BALANCE_UNTIL, type KardexMove } from '../services/inventory'
+import { fetchCurrentStock, isOpeningBalance, isMerchandiseExpense, INVENTORY_START, OPENING_BALANCE_UNTIL, type KardexMove } from '../services/inventory'
 import { valueItem, type ItemValuation } from '../utils/valuation'
 import {
   loadRecordsForRange, loadExpensesForRange, loadPurchasesForRange, loadKardexForRange, getMonthsStatus,
@@ -307,6 +307,12 @@ export function createAnalyticsData() {
 
   const totalSales = computed(() => activeRecords.value.reduce((s, r) => s + Number(r.total), 0))
   const totalExpenses = computed(() => expenses.value.reduce((s, e) => s + Number(e.total), 0))
+  /** Compras de mercadería registradas como gastos diversos (hasta el 12/10) */
+  const merchandiseExpenses = computed(() =>
+    expenses.value.reduce((s, e) => s + (isMerchandiseExpense(e) ? Number(e.total) : 0), 0),
+  )
+  /** Gastos diversos sin esas compras: los que descuenta la utilidad neta */
+  const operatingExpenses = computed(() => totalExpenses.value - merchandiseExpenses.value)
   /** Compras reales del periodo: sin la compra de saldo inicial de inventario */
   const periodPurchases = computed(() => purchases.value.filter((p) => !isOpeningBalance(p)))
   const totalPurchases = computed(() => periodPurchases.value.reduce((s, p) => s + p.total, 0))
@@ -359,7 +365,8 @@ export function createAnalyticsData() {
   const netSales = computed(() => activeRecords.value.reduce((s, r) => s + Number(r.total) * netFactor(r), 0))
   const costOfSales = computed(() => productStats.value.reduce((s, p) => s + (p.cost ?? 0), 0))
   const grossProfit = computed(() => netSales.value - costOfSales.value)
-  const netProfit = computed(() => grossProfit.value - totalExpenses.value)
+  // La mercadería ya está en el costo de ventas: no se descuenta otra vez como gasto
+  const netProfit = computed(() => grossProfit.value - operatingExpenses.value)
   /** Ventas netas de productos sin costo: su costo no se descuenta y la utilidad sale inflada */
   const uncostedSales = computed(() => productStats.value.reduce((s, p) => s + (p.cost === null ? p.net : 0), 0))
 
@@ -529,7 +536,7 @@ export function createAnalyticsData() {
     customerMap, cacheLastUpdated, cacheRefreshing, loadingCustomers, customerProgress, personTypes,
     refreshCustomers,
     selectedPersonTypeIds, documentTypeFilter, selectedProductCodes, allProductOptions, activeRecords,
-    totalSales, totalExpenses, periodPurchases, totalPurchases, openingBalanceTotal, totalDocs, totalClients,
+    totalSales, totalExpenses, merchandiseExpenses, operatingExpenses, periodPurchases, totalPurchases, openingBalanceTotal, totalDocs, totalClients,
     netSales, costOfSales, grossProfit, netProfit, uncostedSales, costIssues, recordCost, productStats, clientStats, inactiveClients,
     drilldown, openDrilldown, closeDrilldown, productKey,
     loadedRange, inventoryLoading, inventoryProgress, inventoryError, inventoryRange, inventoryRows, loadInventory, inventoryValue,
