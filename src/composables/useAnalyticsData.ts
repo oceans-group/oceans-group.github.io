@@ -150,6 +150,8 @@ export function createAnalyticsData() {
       expenses.value = exps
       purchases.value = purs
       loadedRange.value = { start, end }
+      // El inventario va en la cabecera: se calcula en segundo plano (no bloquea el resto del dashboard)
+      void loadInventory()
       monthsStatus.value = await getMonthsStatus(start, end)
     } catch (e) {
       error.value = e instanceof Error ? e.message : 'Error al cargar los datos'
@@ -429,11 +431,26 @@ export function createAnalyticsData() {
   /** Compras desde el corte: dan el costo de cada entrada por compra */
   const inventoryPurchases = ref<PurchaseRecord[]>([])
 
-  async function loadInventory() {
+  // La cabecera y la pestaña Inventario piden la misma carga: se comparte mientras está en curso
+  let pendingInventory: { key: string; promise: Promise<void> } | null = null
+
+  function loadInventory(): Promise<void> {
     const range = loadedRange.value
-    if (!range || !catalogReady.value || range.end < INVENTORY_START) return
+    if (!range || !catalogReady.value || range.end < INVENTORY_START) return Promise.resolve()
     const start = range.start < INVENTORY_START ? INVENTORY_START : range.start
-    if (inventoryRange.value?.start === start && inventoryRange.value.end === range.end) return
+    if (inventoryRange.value?.start === start && inventoryRange.value.end === range.end) return Promise.resolve()
+    const key = `${start}|${range.end}`
+    if (pendingInventory?.key !== key) {
+      const promise = fetchInventory(start, range.end).finally(() => {
+        if (pendingInventory?.promise === promise) pendingInventory = null
+      })
+      pendingInventory = { key, promise }
+    }
+    return pendingInventory.promise
+  }
+
+  async function fetchInventory(start: string, end: string) {
+    const range = { start, end }
     inventoryLoading.value = true
     inventoryError.value = null
     try {
@@ -486,6 +503,13 @@ export function createAnalyticsData() {
       })
   })
 
+  /** Valor del inventario al cierre del rango buscado; null mientras se calcula o si el rango es anterior al corte */
+  const inventoryValue = computed<number | null>(() => {
+    const range = loadedRange.value, inv = inventoryRange.value
+    if (!range || !inv || inv.end !== range.end || inventoryLoading.value) return null
+    return inventoryRows.value.reduce((s, r) => s + r.valuation.closing.value, 0)
+  })
+
   // ── Drill-down de documentos ────────────────────────────────────────────────
 
   const drilldown = ref<{ open: boolean; title: string; docs: DrilldownDoc[] }>({ open: false, title: '', docs: [] })
@@ -508,7 +532,7 @@ export function createAnalyticsData() {
     totalSales, totalExpenses, periodPurchases, totalPurchases, openingBalanceTotal, totalDocs, totalClients,
     netSales, costOfSales, grossProfit, netProfit, uncostedSales, costIssues, recordCost, productStats, clientStats, inactiveClients,
     drilldown, openDrilldown, closeDrilldown, productKey,
-    loadedRange, inventoryLoading, inventoryProgress, inventoryError, inventoryRange, inventoryRows, loadInventory,
+    loadedRange, inventoryLoading, inventoryProgress, inventoryError, inventoryRange, inventoryRows, loadInventory, inventoryValue,
   }
 }
 
