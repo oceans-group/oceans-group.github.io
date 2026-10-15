@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { localToday } from '../utils/dates'
 import { ref, computed, onMounted } from 'vue'
 import { loadRecordsForRange } from '../services/analytics'
 import { fetchAllCustomers, fetchPersonTypes, type SaleRecord, type CustomerCacheEntry, type PersonType } from '../services/proxy'
@@ -6,7 +7,7 @@ import { getCustomerCacheFromDB, saveCustomerCacheToDB } from '../services/cache
 
 // ── Períodos ──────────────────────────────────────────────────────────────────
 
-const today = new Date().toISOString().slice(0, 10)
+const today = localToday()
 const thisYear = today.slice(0, 4)
 const lastYear = String(Number(thisYear) - 1)
 

@@ -3,6 +3,7 @@ import { computed } from 'vue'
 import { useAnalyticsData } from '../../composables/useAnalyticsData'
 import { INVENTORY_START, OPENING_BALANCE_UNTIL } from '../../services/inventory'
 import { fmt } from '../../utils/format'
+import { localToday } from '../../utils/dates'
 
 const {
   totalSales, netSales, costOfSales, grossProfit, totalExpenses, merchandiseExpenses, operatingExpenses, netProfit,
@@ -23,7 +24,7 @@ const fmtDate = (d: string) => `${d.slice(8, 10)}/${d.slice(5, 7)}/${d.slice(0, 
 // Si el rango termina en el futuro, el inventario es el de hoy
 const closingDate = computed(() => {
   if (!loadedRange.value) return ''
-  const today = new Date().toISOString().slice(0, 10)
+  const today = localToday()
   return fmtDate(loadedRange.value.end < today ? loadedRange.value.end : today)
 })
 const beforeInventory = computed(() => !!loadedRange.value && loadedRange.value.end < INVENTORY_START)

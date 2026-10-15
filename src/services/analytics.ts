@@ -4,6 +4,7 @@ import {
 } from './proxy'
 import { monthlyCache, getSyncRegistry, type MonthlyCache } from './cache'
 import { fetchKardex, type KardexMove } from './inventory'
+import { localToday } from '../utils/dates'
 import type { CatalogItem } from './proxy'
 
 // ── Helpers de fechas ─────────────────────────────────────────────────────────
@@ -14,7 +15,7 @@ const LIVE_DAYS = 8
 function cutoffDate(now: Date): string {
   const d = new Date(now)
   d.setDate(d.getDate() - LIVE_DAYS)
-  return d.toISOString().slice(0, 10)
+  return localToday(d)
 }
 
 function subtractDay(date: string): string {

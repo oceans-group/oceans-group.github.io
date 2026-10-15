@@ -1,6 +1,9 @@
 <script setup lang="ts">
 import { useRoute, useRouter } from 'vue-router'
 import { logout } from './services/auth'
+import { APP_VERSION, APP_BUILT_AT } from './services/version'
+
+const builtAt = new Date(APP_BUILT_AT).toLocaleString('es-PE', { dateStyle: 'short', timeStyle: 'short' })
 
 const route = useRoute()
 const router = useRouter()
@@ -35,6 +38,7 @@ function handleLogout() {
       </nav>
     </header>
     <RouterView />
+    <footer class="app-version">Versión {{ APP_VERSION }} · {{ builtAt }}</footer>
   </div>
 </template>
 
@@ -151,5 +155,11 @@ body {
 .logout-btn:hover {
   background: rgba(255,255,255,0.07);
   color: #f8fafc;
+}
+.app-version {
+  padding: 0.75rem 1.5rem 1.25rem;
+  font-size: 0.7rem;
+  color: #94a3b8;
+  text-align: right;
 }
 </style>

@@ -29,7 +29,7 @@ function dailyFetcher() {
 }
 
 // Hoy: 11/10/2026 → cutoff (8 días) = 03/10; la caché parcial de octubre llega hasta el 02/10
-const NOW = new Date('2026-10-11T15:00:00Z')
+const NOW = new Date(2026, 9, 11, 15, 0) // hora local del equipo: el corte usa la fecha local
 const tramos = (fetch: ReturnType<typeof dailyFetcher>) => fetch.mock.calls.map(([s, e]) => `${s}..${e}`)
 
 describe('monthsBetween', () => {
@@ -94,7 +94,7 @@ describe('loadRangeWithCache', () => {
     const { cache, months } = memoryCache()
     const fetch = dailyFetcher()
     // Hoy 05/10 → cutoff 27/09: todo octubre es reciente
-    await loadRangeWithCache('2026-10-01', '2026-10-05', fetch, cache, '', undefined, new Date('2026-10-05T15:00:00Z'))
+    await loadRangeWithCache('2026-10-01', '2026-10-05', fetch, cache, '', undefined, new Date(2026, 9, 5, 15, 0))
     expect(tramos(fetch)).toEqual(['2026-10-01..2026-10-05'])
     expect(months.size).toBe(0)
   })

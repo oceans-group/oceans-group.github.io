@@ -5,6 +5,7 @@ import {
   type CatalogItem,
 } from '../services/proxy'
 import { netFactor } from '../utils/igv'
+import { localToday, monthLastDay } from '../utils/dates'
 import { fetchCurrentStock, isOpeningBalance, isMerchandiseExpense, INVENTORY_START, OPENING_BALANCE_UNTIL, type KardexMove } from '../services/inventory'
 import { valueItem, type ItemValuation } from '../utils/valuation'
 import {
@@ -72,7 +73,7 @@ export interface InactiveClientRow extends ClientRow {
  * obtienen con useAnalyticsData().
  */
 export function createAnalyticsData() {
-  const today = new Date().toISOString().slice(0, 10)
+  const today = localToday()
   const thisMonth = today.slice(0, 7)
 
   // ── Periodo ─────────────────────────────────────────────────────────────────
@@ -85,8 +86,9 @@ export function createAnalyticsData() {
 
   function effectiveDates() {
     if (period.value === 'date') return { start: dateStart.value, end: dateStart.value }
-    if (period.value === 'month') return { start: `${monthStart.value}-01`, end: new Date(parseInt(monthStart.value.slice(0,4)), parseInt(monthStart.value.slice(5,7)), 0).toISOString().slice(0,10) }
-    if (period.value === 'between_months') return { start: `${monthStart.value}-01`, end: new Date(parseInt(monthEnd.value.slice(0,4)), parseInt(monthEnd.value.slice(5,7)), 0).toISOString().slice(0,10) }
+    // monthLastDay: con new Date(y, m, 0) en hora local, en zonas al este de UTC el mes terminaba un día antes
+    if (period.value === 'month') return { start: `${monthStart.value}-01`, end: monthLastDay(monthStart.value) }
+    if (period.value === 'between_months') return { start: `${monthStart.value}-01`, end: monthLastDay(monthEnd.value) }
     return { start: dateStart.value, end: dateEnd.value }
   }
 
@@ -463,7 +465,7 @@ export function createAnalyticsData() {
     try {
       // Desde el corte (ahí arranca el costo promedio) hasta HOY: el saldo se reconstruye hacia atrás
       // desde el stock actual, así que hacen falta también los movimientos posteriores al rango
-      const today = new Date().toISOString().slice(0, 10)
+      const today = localToday()
       const until = range.end > today ? range.end : today
       const [moves, stock, purs] = await Promise.all([
         loadKardexForRange(INVENTORY_START, until, Object.values(catalog.value), (p) => { inventoryProgress.value = p }),

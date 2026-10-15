@@ -77,7 +77,7 @@ interface OceansDB extends DBSchema {
 }
 
 const DB_NAME = 'oceans-analytics'
-const DB_VERSION = 7
+const DB_VERSION = 8
 
 let _db: IDBPDatabase<OceansDB> | null = null
 
@@ -118,6 +118,12 @@ async function getDB(): Promise<IDBPDatabase<OceansDB>> {
         const kdx = db.createObjectStore('kardex', { autoIncrement: true })
         kdx.createIndex('by_month', '_month')
         db.createObjectStore('sync_kardex')
+      }
+      if (oldVersion > 0 && oldVersion < 8) {
+        // 15/10/2026: limpieza general para que todos partan de datos recién descargados tras los cambios de
+        // saldo inicial y reglas de compras (el catálogo de clientes se conserva)
+        for (const store of ['records', 'sync_registry', 'expenses', 'sync_expenses', 'purchases', 'sync_purchases', 'kardex', 'sync_kardex'] as const)
+          transaction.objectStore(store).clear()
       }
     },
   })
